@@ -32,7 +32,7 @@ class Backtester:
         self.margin = margin
         self.equity_curve = None
         self.trade_log = None
-        self.is_order_based = hasattr(self.strategy, 'generate_orders') and callable(self.strategy.generate_orders)
+        self.is_order_based = self.strategy.strategy_type == 'order'
 
     def run(self):
         """

@@ -24,6 +24,14 @@ class Strategy(ABC):
         self.signals = {}
         self.data = None
 
+    @property
+    def strategy_type(self) -> str:
+        """
+        Defines the type of the strategy, 'signal' or 'order'.
+        This can be overridden by subclasses.
+        """
+        return 'signal'
+
     def generate_signals(self) -> dict:
         """
         (For Signal-Based Strategies)
