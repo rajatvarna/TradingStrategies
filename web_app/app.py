@@ -43,6 +43,7 @@ class User(db.Model):
 
     strategies = db.relationship('Strategy', backref='author', lazy='dynamic')
     api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade="all, delete-orphan")
+    paper_account = db.relationship('PaperAccount', backref='user', uselist=False, cascade="all, delete-orphan")
 
     def set_password(self, password):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -78,6 +79,7 @@ class Strategy(db.Model):
     name = db.Column(db.String(128), nullable=False)
     description = db.Column(db.Text, nullable=True)
     is_public = db.Column(db.Boolean, default=False, nullable=False)
+    is_paper_deployed = db.Column(db.Boolean, default=False, nullable=False)
     # The configuration for the CustomStrategy, stored as a JSON string
     config_json = db.Column(db.Text, nullable=False)
 
@@ -95,10 +97,37 @@ class Strategy(db.Model):
             'author': self.author.username if self.author else 'Anonymous',
             'description': self.description,
             'is_public': self.is_public,
+            'is_paper_deployed': self.is_paper_deployed,
             'config': json.loads(self.config_json),
             'backtest_result': self.backtest_result.to_dict() if self.backtest_result else None
         }
         return result_dict
+
+class PaperAccount(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
+    balance = db.Column(db.Float, nullable=False, default=100000.0)
+    buying_power = db.Column(db.Float, nullable=False, default=100000.0)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    positions = db.relationship('PaperPosition', backref='account', lazy='dynamic', cascade="all, delete-orphan")
+    trades = db.relationship('PaperTrade', backref='account', lazy='dynamic', cascade="all, delete-orphan")
+
+class PaperPosition(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('paper_account.id'), nullable=False)
+    symbol = db.Column(db.String(32), nullable=False)
+    quantity = db.Column(db.Float, nullable=False)
+    average_entry_price = db.Column(db.Float, nullable=False)
+
+class PaperTrade(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('paper_account.id'), nullable=False)
+    symbol = db.Column(db.String(32), nullable=False)
+    action = db.Column(db.String(16), nullable=False) # 'BUY' or 'SELL'
+    quantity = db.Column(db.Float, nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    timestamp = db.Column(db.DateTime, server_default=db.func.now())
 
 class BacktestResult(db.Model):
     """
@@ -356,6 +385,53 @@ def get_strategy_signals(current_user, strategy_id):
     except Exception as e:
         return jsonify({'error': 'Failed to generate signals.', 'details': str(e)}), 500
 
+
+# --- Paper Trading Endpoints ---
+
+@app.route('/api/strategies/<int:strategy_id>/deploy', methods=['POST'])
+@token_required
+def deploy_strategy(current_user, strategy_id):
+    """
+    Deploys or undeploys a strategy for paper trading.
+    """
+    strategy = Strategy.query.get_or_404(strategy_id)
+    if strategy.author != current_user:
+        return jsonify({'error': 'You can only deploy your own strategies.'}), 403
+
+    # Create a paper account for the user if they don't have one
+    if not current_user.paper_account:
+        account = PaperAccount(user_id=current_user.id)
+        db.session.add(account)
+
+    # Toggle deployment status
+    strategy.is_paper_deployed = not strategy.is_paper_deployed
+    db.session.commit()
+
+    status = "deployed" if strategy.is_paper_deployed else "undeployed"
+    return jsonify({'message': f'Strategy {strategy.name} has been {status} for paper trading.'})
+
+@app.route('/api/me/paper/account', methods=['GET'])
+@token_required
+def get_paper_account(current_user):
+    """
+    Returns the status of the user's paper trading account.
+    """
+    account = current_user.paper_account
+    if not account:
+        return jsonify({'message': 'No paper trading account found. Deploy a strategy to create one.'}), 404
+
+    positions = [{
+        'symbol': p.symbol,
+        'quantity': p.quantity,
+        'average_entry_price': p.average_entry_price
+    } for p in account.positions]
+
+    return jsonify({
+        'balance': account.balance,
+        'buying_power': account.buying_power,
+        'created_at': account.created_at.isoformat(),
+        'positions': positions
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
