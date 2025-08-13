@@ -1,0 +1,41 @@
+# Configuration for Quantitative Trading Strategies
+
+crypto_momentum:
+  name: "Crypto Momentum Breakout"
+  tickers:
+    - "BTC-USD"
+    - "ETH-USD"
+    - "XRP-USD"
+    - "BNB-USD"
+    - "SOL-USD"
+    - "ADA-USD"
+    - "DOGE-USD"
+    - "LTC-USD"
+    - "LINK-USD"
+    - "BCH-USD"
+    - "AVAX-USD"
+  start_date: "2020-01-01"
+  parameters:
+    hh_period: 20
+    ema_period: 5
+    risk_on_btc_ema_period: 20
+    min_price: 0.50
+    min_volume: 100000
+
+opening_range_breakout:
+  name: "Equity Opening Range Breakout"
+  # Universe selection will be handled by the backtester based on fundamental data
+  # This is just a placeholder for potential default symbols
+  default_tickers:
+    - "SPY"
+    - "QQQ"
+    - "AAPL"
+    - "MSFT"
+    - "GOOG"
+  parameters:
+    universe_size: 1000
+    max_positions: 20
+    opening_range_minutes: 5
+    atr_period: 14
+    stop_loss_atr_multiplier: 0.5
+    portfolio_risk_per_trade: 0.01
