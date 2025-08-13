@@ -3,9 +3,19 @@
 [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
  * Running on http://127.0.0.1:5000
 [33mPress CTRL+C to quit[0m
-127.0.0.1 - - [13/Aug/2025 17:50:00] "[31m[1mPOST /api/register HTTP/1.1[0m" 400 -
-127.0.0.1 - - [13/Aug/2025 17:50:01] "POST /api/login HTTP/1.1" 200 -
-127.0.0.1 - - [13/Aug/2025 17:50:01] "[35m[1mPOST /api/strategies HTTP/1.1[0m" 201 -
-127.0.0.1 - - [13/Aug/2025 17:50:01] "POST /api/strategies/2/deploy HTTP/1.1" 200 -
-127.0.0.1 - - [13/Aug/2025 17:50:01] "GET /api/me/paper/account HTTP/1.1" 200 -
-127.0.0.1 - - [13/Aug/2025 17:50:04] "GET /api/me/paper/account HTTP/1.1" 200 -
+127.0.0.1 - - [13/Aug/2025 21:10:32] "[35m[1mPOST /api/register HTTP/1.1[0m" 201 -
+127.0.0.1 - - [13/Aug/2025 21:10:32] "POST /api/login HTTP/1.1" 200 -
+127.0.0.1 - - [13/Aug/2025 21:10:32] "[35m[1mPOST /api/strategies HTTP/1.1[0m" 201 -
+/app/quant_strategies/strategy_blocks.py:163: FutureWarning: YF.download() has changed argument auto_adjust default to True
+  self.data = yf.download(self.tickers, start=self.start_date, end=self.end_date, group_by='ticker')
+[*********************100%***********************]  1 of 1 completed
+/app/quant_strategies/backtester.py:205: FutureWarning: YF.download() has changed argument auto_adjust default to True
+  bench_data = yf.download(benchmark_ticker, start=self.equity_curve.index[0], end=self.equity_curve.index[-1])
+[*********************100%***********************]  1 of 1 completed
+/app/quant_strategies/strategy_blocks.py:163: FutureWarning: YF.download() has changed argument auto_adjust default to True
+  self.data = yf.download(self.tickers, start=self.start_date, end=self.end_date, group_by='ticker')
+[*********************100%***********************]  1 of 1 completed
+/app/quant_strategies/backtester.py:205: FutureWarning: YF.download() has changed argument auto_adjust default to True
+  bench_data = yf.download(benchmark_ticker, start=self.equity_curve.index[0], end=self.equity_curve.index[-1])
+[*********************100%***********************]  1 of 1 completed
+127.0.0.1 - - [13/Aug/2025 21:10:37] "POST /api/strategies/3/optimize HTTP/1.1" 200 -

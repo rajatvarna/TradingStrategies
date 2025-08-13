@@ -16,6 +16,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from quant_strategies.strategy_blocks import CustomStrategy
+# The 'from optimizer' import is moved inside the endpoint to prevent circular dependency
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -432,6 +433,33 @@ def get_paper_account(current_user):
         'created_at': account.created_at.isoformat(),
         'positions': positions
     })
+
+
+# --- Advanced Backtesting Endpoints ---
+
+@app.route('/api/strategies/<int:strategy_id>/optimize', methods=['POST'])
+@token_required
+def optimize_strategy(current_user, strategy_id):
+    """
+    Runs parameter optimization for a given strategy.
+    """
+    from optimizer import run_optimization # Moved import to prevent circular dependency
+
+    strategy = Strategy.query.get_or_404(strategy_id)
+    if strategy.author != current_user:
+        return jsonify({'error': 'You can only optimize your own strategies.'}), 403
+
+    data = request.get_json()
+    required_fields = ['parameter_name', 'start', 'end', 'step']
+    if not data or not all(field in data for field in required_fields):
+        return jsonify({'error': f'Missing one or more required fields: {required_fields}'}), 400
+
+    try:
+        results = run_optimization(strategy_id, data)
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'error': 'An error occurred during optimization.', 'details': str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True)
