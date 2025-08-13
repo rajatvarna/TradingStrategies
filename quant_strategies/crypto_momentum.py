@@ -1,10 +1,14 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from quant_strategies.strategy_base import Strategy
 
-class CryptoMomentumStrategy:
+class CryptoMomentumStrategy(Strategy):
     """
     Implements a crypto momentum breakout strategy.
+
+    This strategy inherits from the base Strategy class and implements the
+    `generate_signals` method.
 
     The strategy enters a position when the price breaks above a recent
     highest high, subject to several filters (liquidity, trend, market regime).
@@ -16,17 +20,9 @@ class CryptoMomentumStrategy:
         Initializes the strategy with a configuration dictionary.
 
         Args:
-            config (dict): A dictionary containing all strategy parameters,
-                           typically loaded from a YAML or JSON file.
-                           Expected keys: 'tickers', 'start_date', 'end_date',
-                           'parameters'.
+            config (dict): A dictionary containing all strategy parameters.
         """
-        self.tickers = config['tickers']
-        self.start_date = config['start_date']
-        self.end_date = pd.to_datetime('today').strftime('%Y-%m-%d') # Always use current date as end
-        self.params = config['parameters']
-        self.data = None
-        self.signals = {}
+        super().__init__(config)
 
     def _download_data(self):
         """Downloads historical data for all tickers in the universe."""
@@ -41,6 +37,10 @@ class CryptoMomentumStrategy:
         Returns:
             pd.DataFrame: A dataframe with the original data and the calculated 'Signal' column.
         """
+        # Ensure the ticker data exists and is not a DataFrame of NaNs
+        if ticker not in self.data or self.data[ticker].isnull().all().all():
+            return pd.DataFrame()
+
         df = self.data[ticker].copy().dropna()
         if df.empty:
             return pd.DataFrame()
@@ -48,8 +48,6 @@ class CryptoMomentumStrategy:
         # --- Indicator and Filter Calculation ---
 
         # 1. Highest High (HH): The core of the breakout signal.
-        # We look for the highest closing price over the last `hh_period` days.
-        # .shift(1) ensures we are only using data available *before* the current day to avoid lookahead bias.
         df['HH'] = df['Close'].rolling(self.params['hh_period']).max().shift(1)
 
         # 2. Exponential Moving Average (EMA): Used to determine the short-term trend.
@@ -57,28 +55,25 @@ class CryptoMomentumStrategy:
         df['EMA_p'] = df['EMA'].shift(1) # Previous day's EMA for comparison.
 
         # 3. Bitcoin Risk-On Filter: A market regime filter.
-        # The strategy is long-only, so we want to avoid taking new trades if the
-        # overall market (represented by Bitcoin) is weak.
-        # 'RiskOn' is True if BTC's price is above its long-term EMA.
-        btc_data = self.data['BTC-USD'].copy().dropna()
+        btc_data = self.data.get('BTC-USD', pd.DataFrame()).copy().dropna()
         if not btc_data.empty:
             btc_ema = btc_data['Close'].ewm(span=self.params['risk_on_btc_ema_period'], adjust=False).mean()
             # Align BTC data with the current ticker's dates
             df['RiskOn'] = btc_ema.reindex(df.index, method='ffill') < btc_data['Close'].reindex(df.index, method='ffill')
             df['RiskOn'] = df['RiskOn'].fillna(False)
         else:
-            df['RiskOn'] = True # Default to risk-on (True) if BTC data is unavailable for any reason.
+            df['RiskOn'] = True # Default to risk-on if BTC data is unavailable
 
         # --- Signal Generation ---
         df['Signal'] = 0
 
         # Entry Signal: All conditions must be met simultaneously.
         entry_conditions = (
-            (df['Close'] > df['HH']) &  # Price breaks above the recent highest high.
-            (df['Close'] > self.params['min_price']) &  # Liquidity filter: avoids penny stocks.
-            (df['Volume'] > self.params['min_volume']) &  # Liquidity filter: ensures tradability.
-            (df['EMA'] > df['EMA_p']) &  # Trend filter: confirms short-term upward momentum.
-            (df['RiskOn'])  # Market filter: ensures we're not buying into a weak market.
+            (df['Close'] > df['HH']) &
+            (df['Close'] > self.params['min_price']) &
+            (df['Volume'] > self.params['min_volume']) &
+            (df['EMA'] > df['EMA_p']) &
+            (df['RiskOn'])
         )
 
         # Exit Signal: The short-term trend has turned down.
@@ -89,41 +84,45 @@ class CryptoMomentumStrategy:
 
         return df
 
-    def run_signal_generation(self):
+    def generate_signals(self):
         """
         Orchestrates the data download and signal generation for all tickers.
+
+        This method implements the abstract method from the Strategy base class.
 
         Returns:
             dict: A dictionary where keys are tickers and values are DataFrames with signals.
         """
         self._download_data()
 
-        # Ensure BTC is processed first for the risk filter
         if 'BTC-USD' not in self.tickers:
             raise ValueError("BTC-USD must be in the ticker list for the risk filter.")
 
         for ticker in self.tickers:
-            if ticker in self.data:
-                print(f"Calculating signals for {ticker}...")
-                self.signals[ticker] = self._calculate_signals(ticker)
-            else:
-                print(f"No data for {ticker}, skipping.")
+            print(f"Calculating signals for {ticker}...")
+            self.signals[ticker] = self._calculate_signals(ticker)
 
         print("Signal generation complete.")
         return self.signals
 
 if __name__ == '__main__':
     # Example usage:
-    tickers = [
-        "BTC-USD", "ETH-USD", "XRP-USD", "BNB-USD", "SOL-USD", "ADA-USD",
-        "DOGE-USD", "LTC-USD", "LINK-USD", "BCH-USD", "AVAX-USD"
-    ]
-    strategy = CryptoMomentumStrategy(
-        tickers=tickers,
-        start_date="2020-01-01",
-        end_date=pd.to_datetime('today').strftime('%Y-%m-%d')
-    )
-    signals = strategy.run_signal_generation()
+    strategy_config = {
+        'tickers': [
+            "BTC-USD", "ETH-USD", "XRP-USD", "BNB-USD", "SOL-USD", "ADA-USD",
+            "DOGE-USD", "LTC-USD", "LINK-USD", "BCH-USD", "AVAX-USD"
+        ],
+        'start_date': "2020-01-01",
+        'parameters': {
+            'hh_period': 20,
+            'ema_period': 10,
+            'risk_on_btc_ema_period': 200,
+            'min_price': 0.1,
+            'min_volume': 100000
+        }
+    }
+    strategy = CryptoMomentumStrategy(config=strategy_config)
+    signals = strategy.generate_signals()
 
     # Display the latest signal for a specific ticker
     if "ETH-USD" in signals and not signals["ETH-USD"].empty:
