@@ -163,11 +163,15 @@ class CustomStrategy(Strategy):
         self.data = yf.download(self.tickers, start=self.start_date, end=self.end_date, group_by='ticker')
         print("Data download complete.")
 
-    def generate_signals(self) -> dict:
+    def generate_signals(self, data=None) -> dict:
         """
         Generates signals by evaluating the entry and exit rule blocks for each ticker.
+        Can accept a pre-loaded data DataFrame to avoid downloading.
         """
-        self._download_data()
+        if data is None:
+            self._download_data()
+        else:
+            self.data = data
 
         for ticker in self.tickers:
             print(f"Calculating signals for {ticker}...")

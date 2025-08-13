@@ -437,6 +437,34 @@ def get_paper_account(current_user):
 
 # --- Advanced Backtesting Endpoints ---
 
+@app.route('/api/strategies/<int:strategy_id>/walkforward', methods=['POST'])
+@token_required
+def walk_forward_strategy(current_user, strategy_id):
+    """
+    Runs a walk-forward analysis for a given strategy.
+    """
+    from walk_forward_analyzer import run_walk_forward_analysis
+
+    strategy = Strategy.query.get_or_404(strategy_id)
+    if strategy.author != current_user:
+        return jsonify({'error': 'You can only analyze your own strategies.'}), 403
+
+    data = request.get_json()
+    opt_fields = ['parameter_name', 'start', 'end', 'step']
+    wf_fields = ['in_sample_days', 'out_of_sample_days']
+    if not data or not all(field in data for field in opt_fields + wf_fields):
+        return jsonify({'error': f'Missing one or more required fields: {opt_fields + wf_fields}'}), 400
+
+    try:
+        optimization_params = {k: data[k] for k in opt_fields}
+        in_sample_days = data['in_sample_days']
+        out_of_sample_days = data['out_of_sample_days']
+
+        results = run_walk_forward_analysis(strategy_id, optimization_params, in_sample_days, out_of_sample_days)
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'error': 'An error occurred during walk-forward analysis.', 'details': str(e)}), 500
+
 @app.route('/api/strategies/<int:strategy_id>/optimize', methods=['POST'])
 @token_required
 def optimize_strategy(current_user, strategy_id):

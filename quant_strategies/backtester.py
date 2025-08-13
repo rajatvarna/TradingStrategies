@@ -21,15 +21,17 @@ class Backtester:
     """
 
     def __init__(self, strategy: Strategy, initial_capital=100000, max_positions=15,
-                 trade_risk_pct=0.01, margin=1.5):
+                 trade_risk_pct=0.01, margin=1.5, data=None):
         """
         Initializes the Backtester.
+        Can accept a pre-loaded DataFrame to use instead of downloading new data.
         """
         self.strategy = strategy
         self.initial_capital = initial_capital
         self.max_positions = max_positions
         self.trade_risk_pct = trade_risk_pct
         self.margin = margin
+        self.data = data # Pre-loaded data
         self.equity_curve = None
         self.trade_log = None
         self.is_order_based = self.strategy.strategy_type == 'order'
@@ -50,7 +52,7 @@ class Backtester:
         This is the original backtesting logic.
         """
         # 1. Get signals and data from the strategy
-        signals = self.strategy.generate_signals()
+        signals = self.strategy.generate_signals(data=self.data)
 
         # 2. Consolidate data
         all_data_frames = [df.add_prefix(f'{ticker}_') for ticker, df in signals.items() if not df.empty]
