@@ -5,7 +5,17 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 import bcrypt
 import jwt
+import secrets
 from datetime import datetime, timedelta, timezone
+
+# --- Path Setup for Quant Lib ---
+# This is needed so the web app can import from the quant_strategies library
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from quant_strategies.strategy_blocks import CustomStrategy
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -32,6 +42,7 @@ class User(db.Model):
     tier = db.Column(db.String(32), default='free', nullable=False) # e.g., 'free', 'premium', 'developer'
 
     strategies = db.relationship('Strategy', backref='author', lazy='dynamic')
+    api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade="all, delete-orphan")
 
     def set_password(self, password):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -41,6 +52,23 @@ class User(db.Model):
 
     def __repr__(self):
         return f'<User {self.username}>'
+
+class APIKey(db.Model):
+    """
+    Stores API keys for users.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    key_hash = db.Column(db.String(128), nullable=False)
+    prefix = db.Column(db.String(8), unique=True, nullable=False) # For identification
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'prefix': self.prefix,
+            'created_at': self.created_at.isoformat()
+        }
 
 class Strategy(db.Model):
     """
@@ -102,7 +130,25 @@ class BacktestResult(db.Model):
 
 from functools import wraps
 
-# --- Auth Decorator ---
+# --- Auth Decorators ---
+def api_key_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key')
+        if not api_key:
+            return jsonify({'message': 'API key is missing!'}), 401
+
+        # Find key by prefix
+        prefix = api_key[:8]
+        key_record = APIKey.query.filter_by(prefix=prefix).first()
+
+        if key_record and bcrypt.checkpw(api_key.encode('utf-8'), key_record.key_hash):
+            current_user = User.query.get(key_record.user_id)
+            return f(current_user, *args, **kwargs)
+
+        return jsonify({'message': 'API key is invalid!'}), 401
+    return decorated
+
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -230,6 +276,85 @@ def get_leaderboard():
         return jsonify([s.to_dict() for s in ranked_strategies]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/me/api-keys', methods=['POST'])
+@token_required
+def create_api_key(current_user):
+    """
+    Generates a new API key for the authenticated user.
+    """
+    # Generate a new key and its prefix
+    new_key = secrets.token_urlsafe(32)
+    prefix = new_key[:8]
+
+    # Hash the full key for storage
+    key_hash = bcrypt.hashpw(new_key.encode('utf-8'), bcrypt.gensalt())
+
+    api_key = APIKey(user_id=current_user.id, key_hash=key_hash, prefix=prefix)
+    db.session.add(api_key)
+    db.session.commit()
+
+    # Return the full, unhashed key to the user ONCE.
+    return jsonify({'api_key': new_key, 'message': 'Key generated successfully. This is the only time you will see the full key.'}), 201
+
+@app.route('/api/me/api-keys', methods=['GET'])
+@token_required
+def get_api_keys(current_user):
+    """
+    Lists all API keys (prefixes only) for the authenticated user.
+    """
+    keys = APIKey.query.filter_by(user_id=current_user.id).all()
+    return jsonify([key.to_dict() for key in keys]), 200
+
+@app.route('/api/signals/<int:strategy_id>', methods=['GET'])
+@api_key_required
+def get_strategy_signals(current_user, strategy_id):
+    """
+    Returns the latest trading signal for a given strategy.
+    Requires API key authentication and 'developer' tier access.
+    """
+    # 1. Tier-based access control
+    if current_user.tier != 'developer':
+        return jsonify({
+            'error': 'Access denied. This feature requires a developer tier subscription.'
+        }), 403
+
+    strategy_obj = Strategy.query.get_or_404(strategy_id)
+
+    try:
+        # 2. Instantiate the strategy from its stored config
+        config = json.loads(strategy_obj.config_json)
+
+        # Ensure the date range is just the last few days to get the latest signal
+        # without a full backtest. We need enough data for the longest indicator.
+        # This is a simplification; a real system might need more robust date logic.
+        config['start_date'] = (datetime.now() - timedelta(days=100)).strftime('%Y-%m-%d')
+        config['end_date'] = datetime.now().strftime('%Y-%m-%d')
+
+        custom_strategy = CustomStrategy(config=config)
+
+        # 3. Generate signals
+        signals_data = custom_strategy.generate_signals()
+
+        # 4. Extract the latest signal for each ticker
+        latest_signals = {}
+        for ticker, df in signals_data.items():
+            if not df.empty:
+                last_row = df.iloc[-1]
+                latest_signals[ticker] = {
+                    'date': last_row.name.strftime('%Y-%m-%d'),
+                    'signal': int(last_row['Signal']), # -1, 0, or 1
+                    'close_price': float(last_row['Close'])
+                }
+
+        return jsonify({
+            'strategy_id': strategy_obj.id,
+            'strategy_name': strategy_obj.name,
+            'latest_signals': latest_signals
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': 'Failed to generate signals.', 'details': str(e)}), 500
 
 
 if __name__ == '__main__':

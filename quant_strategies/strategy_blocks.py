@@ -111,7 +111,7 @@ class AndBlock(Block):
 
 
 import yfinance as yf
-from .strategy_base import Strategy
+from quant_strategies.strategy_base import Strategy
 
 # --- Strategy Execution ---
 
