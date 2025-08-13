@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pydantic
+langchain
+faiss-cpu
+sentence-transformers

@@ -62,35 +62,36 @@ class OpeningRangeBreakoutStrategy:
         """
         print("Scanning for opening range breakout entries...")
 
-        # --- 1. Filter for stocks with high relative volume ---
+        # --- 1. Filter for stocks with high relative volume ("in play" stocks) ---
         volume_candidates = []
         for symbol in universe_symbols:
+            # Requires both daily data (for avg volume and ATR) and minute data (for opening range)
+            if symbol not in market_data or 'daily' not in market_data[symbol] or 'minute' not in market_data[symbol]:
+                continue
             daily_data = market_data[symbol]['daily']
             minute_data = market_data[symbol]['minute']
 
-            if daily_data.empty or minute_data.empty:
+            if daily_data.empty or minute_data.empty or len(daily_data) < self.params['atr_period']:
                 continue
 
-            # Calculate 14-day average daily volume
+            # Calculate 14-day average daily volume for the denominator of the relative volume calc.
             avg_daily_volume = daily_data['Volume'].rolling(self.params['atr_period']).mean().iloc[-1]
 
-            # Calculate volume in the opening range
+            # Calculate the actual volume in the specified opening range (e.g., first 5 minutes).
             opening_range_volume = minute_data.head(self.params['opening_range_minutes'])['Volume'].sum()
 
-            # This is a proxy for the notebook's relative volume calculation.
-            # A true implementation would need to normalize by time of day.
-            # For now, we'll use a simple ratio. A value > 0.1 might mean high relative volume.
-            # A more robust solution would be needed in production.
+            # Relative Volume is a key indicator for identifying unusual interest.
+            # A value > 1 means the stock has traded more in the first 5 mins than its recent daily average.
             relative_volume = opening_range_volume / avg_daily_volume if avg_daily_volume > 0 else 0
 
-            if relative_volume > 1.0: # Filter for stocks with high relative volume
+            if relative_volume > 1.0:
                  volume_candidates.append({'symbol': symbol, 'relative_volume': relative_volume})
 
         if not volume_candidates:
             return {}
 
-        # --- 2. Select top N candidates and generate orders ---
-        # Sort by relative volume and take the top N candidates
+        # --- 2. Select top N candidates and generate entry/stop orders ---
+        # We focus our capital on the stocks with the most significant interest.
         top_candidates = sorted(volume_candidates, key=lambda x: x['relative_volume'], reverse=True)
         top_candidates = top_candidates[:self.params['max_positions']]
 
@@ -100,35 +101,38 @@ class OpeningRangeBreakoutStrategy:
             minute_data = market_data[symbol]['minute']
             daily_data = market_data[symbol]['daily']
 
+            # Define the opening range based on the first N minutes.
             opening_range = minute_data.head(self.params['opening_range_minutes'])
             orb_high = opening_range['High'].max()
             orb_low = opening_range['Low'].min()
             orb_close = opening_range['Close'].iloc[-1]
             orb_open = opening_range['Open'].iloc[0]
 
+            # ATR is used for setting a volatility-adjusted stop loss.
             atr = daily_data['ATR'].iloc[-1]
 
             action = None
             entry_price = 0
             stop_price = 0
 
-            # Condition for a long entry
+            # If the opening bar is green, we prepare a long entry on a breakout of the high.
             if orb_close > orb_open:
                 action = 'BUY'
                 entry_price = orb_high
                 stop_price = entry_price - (self.params['stop_loss_atr_multiplier'] * atr)
-            # Condition for a short entry
+            # If red, we prepare a short entry on a breakdown of the low.
             else:
-                action = 'SELL' # Short Sell
+                action = 'SELL_SHORT'
                 entry_price = orb_low
                 stop_price = entry_price + (self.params['stop_loss_atr_multiplier'] * atr)
 
-            # --- 3. Calculate Position Size ---
+            # --- 3. Calculate Position Size based on Risk ---
             risk_per_share = abs(entry_price - stop_price)
             if risk_per_share == 0:
                 continue
 
-            # Amount to risk per trade based on portfolio value
+            # This is a key risk management rule: size the position so that a hit to the
+            # stop-loss results in a predefined, acceptable loss to the portfolio.
             amount_to_risk = portfolio_value * self.params['portfolio_risk_per_trade']
 
             quantity = int(amount_to_risk / risk_per_share)

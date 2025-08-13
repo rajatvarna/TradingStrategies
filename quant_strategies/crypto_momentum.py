@@ -45,29 +45,43 @@ class CryptoMomentumStrategy:
         if df.empty:
             return pd.DataFrame()
 
-        # Calculate technical indicators and filters
-        df['HH'] = df['Close'].rolling(self.params['hh_period']).max().shift(1)
-        df['EMA'] = df['Close'].ewm(span=self.params['ema_period'], adjust=False).mean()
-        df['EMA_p'] = df['EMA'].shift(1)
+        # --- Indicator and Filter Calculation ---
 
-        # Bitcoin risk-on filter
+        # 1. Highest High (HH): The core of the breakout signal.
+        # We look for the highest closing price over the last `hh_period` days.
+        # .shift(1) ensures we are only using data available *before* the current day to avoid lookahead bias.
+        df['HH'] = df['Close'].rolling(self.params['hh_period']).max().shift(1)
+
+        # 2. Exponential Moving Average (EMA): Used to determine the short-term trend.
+        df['EMA'] = df['Close'].ewm(span=self.params['ema_period'], adjust=False).mean()
+        df['EMA_p'] = df['EMA'].shift(1) # Previous day's EMA for comparison.
+
+        # 3. Bitcoin Risk-On Filter: A market regime filter.
+        # The strategy is long-only, so we want to avoid taking new trades if the
+        # overall market (represented by Bitcoin) is weak.
+        # 'RiskOn' is True if BTC's price is above its long-term EMA.
         btc_data = self.data['BTC-USD'].copy().dropna()
         if not btc_data.empty:
             btc_ema = btc_data['Close'].ewm(span=self.params['risk_on_btc_ema_period'], adjust=False).mean()
+            # Align BTC data with the current ticker's dates
             df['RiskOn'] = btc_ema.reindex(df.index, method='ffill') < btc_data['Close'].reindex(df.index, method='ffill')
             df['RiskOn'] = df['RiskOn'].fillna(False)
         else:
-            df['RiskOn'] = True # Default to risk-on if BTC data is unavailable
+            df['RiskOn'] = True # Default to risk-on (True) if BTC data is unavailable for any reason.
 
-        # Generate trading signal: 1=entry, -1=exit, 0=flat
+        # --- Signal Generation ---
         df['Signal'] = 0
+
+        # Entry Signal: All conditions must be met simultaneously.
         entry_conditions = (
-            (df['Close'] > df['HH']) &
-            (df['Close'] > self.params['min_price']) &
-            (df['Volume'] > self.params['min_volume']) &
-            (df['EMA'] > df['EMA_p']) &
-            (df['RiskOn'])
+            (df['Close'] > df['HH']) &  # Price breaks above the recent highest high.
+            (df['Close'] > self.params['min_price']) &  # Liquidity filter: avoids penny stocks.
+            (df['Volume'] > self.params['min_volume']) &  # Liquidity filter: ensures tradability.
+            (df['EMA'] > df['EMA_p']) &  # Trend filter: confirms short-term upward momentum.
+            (df['RiskOn'])  # Market filter: ensures we're not buying into a weak market.
         )
+
+        # Exit Signal: The short-term trend has turned down.
         exit_conditions = (df['EMA'] < df['EMA_p'])
 
         df.loc[entry_conditions, 'Signal'] = 1
