@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from .rag import rag_system
 
 # Pydantic model for the request body
 class ChatQuery(BaseModel):
@@ -13,6 +14,19 @@ app = FastAPI(
     version="0.1.0",
 )
 
+@app.on_event("startup")
+async def startup_event():
+    """
+    This function is called when the application starts.
+    We can use it to ensure the RAG system is loaded.
+    """
+    print("Application startup...")
+    if rag_system.vector_store is None:
+        print("RAG system is not initialized. Check database connection and documents.")
+    else:
+        print("RAG system is ready.")
+
+
 @app.get("/")
 def read_root():
     """A simple endpoint to confirm the service is running."""
@@ -22,18 +36,15 @@ def read_root():
 def answer_question(query: ChatQuery):
     """
     The main endpoint for handling user questions.
-
-    This is currently a placeholder. In the next phase, this endpoint will
-    trigger the RAG workflow to generate a context-aware answer.
+    This endpoint triggers the RAG workflow to generate a context-aware answer.
     """
     print(f"Received query: {query.question}")
 
-    # Placeholder response
-    response_text = "Hello, I am the Quant Assistant. My full capabilities are under development. How can I help you with our strategies today?"
+    answer = rag_system.get_answer(query.question)
 
     return {
         "question": query.question,
-        "answer": response_text
+        "answer": answer
     }
 
 # To run this service locally:

@@ -4,3 +4,4 @@ pydantic
 langchain
 faiss-cpu
 sentence-transformers
+SQLAlchemy
