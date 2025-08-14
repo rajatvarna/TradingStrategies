@@ -32,6 +32,12 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
 # --- Database Models ---
+
+portfolio_strategies = db.Table('portfolio_strategies',
+    db.Column('portfolio_id', db.Integer, db.ForeignKey('portfolio.id'), primary_key=True),
+    db.Column('strategy_id', db.Integer, db.ForeignKey('strategy.id'), primary_key=True)
+)
+
 class User(db.Model):
     """
     Represents a user of the application.
@@ -45,6 +51,7 @@ class User(db.Model):
     strategies = db.relationship('Strategy', backref='author', lazy='dynamic')
     api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade="all, delete-orphan")
     paper_account = db.relationship('PaperAccount', backref='user', uselist=False, cascade="all, delete-orphan")
+    portfolios = db.relationship('Portfolio', backref='author', lazy='dynamic')
 
     def set_password(self, password):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -87,6 +94,8 @@ class Strategy(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
     backtest_result = db.relationship('BacktestResult', backref='strategy', uselist=False, cascade="all, delete-orphan")
+    portfolios = db.relationship('Portfolio', secondary=portfolio_strategies, lazy='subquery',
+        backref=db.backref('strategies', lazy=True))
 
     def to_dict(self):
         """
@@ -103,6 +112,19 @@ class Strategy(db.Model):
             'backtest_result': self.backtest_result.to_dict() if self.backtest_result else None
         }
         return result_dict
+
+class Portfolio(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'user_id': self.user_id,
+            'strategy_ids': [s.id for s in self.strategies]
+        }
 
 class PaperAccount(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -435,7 +457,74 @@ def get_paper_account(current_user):
     })
 
 
+# --- Portfolio Management Endpoints ---
+
+@app.route('/api/portfolios', methods=['POST'])
+@token_required
+def create_portfolio(current_user):
+    data = request.get_json()
+    if not data or not 'name' in data:
+        return jsonify({'error': 'Missing name for portfolio.'}), 400
+
+    portfolio = Portfolio(name=data['name'], author=current_user)
+    db.session.add(portfolio)
+    db.session.commit()
+    return jsonify(portfolio.to_dict()), 201
+
+@app.route('/api/portfolios', methods=['GET'])
+@token_required
+def get_portfolios(current_user):
+    portfolios = Portfolio.query.filter_by(user_id=current_user.id).all()
+    return jsonify([p.to_dict() for p in portfolios])
+
+@app.route('/api/portfolios/<int:portfolio_id>', methods=['GET'])
+@token_required
+def get_portfolio(current_user, portfolio_id):
+    portfolio = Portfolio.query.get_or_404(portfolio_id)
+    if portfolio.author != current_user:
+        return jsonify({'error': 'Not authorized to view this portfolio.'}), 403
+    return jsonify(portfolio.to_dict())
+
+@app.route('/api/portfolios/<int:portfolio_id>/add_strategy', methods=['POST'])
+@token_required
+def add_strategy_to_portfolio(current_user, portfolio_id):
+    portfolio = Portfolio.query.get_or_404(portfolio_id)
+    if portfolio.author != current_user:
+        return jsonify({'error': 'Not authorized to modify this portfolio.'}), 403
+
+    data = request.get_json()
+    if not data or 'strategy_id' not in data:
+        return jsonify({'error': 'Missing strategy_id.'}), 400
+
+    strategy = Strategy.query.get_or_404(data['strategy_id'])
+    if strategy.author != current_user:
+        return jsonify({'error': 'You can only add your own strategies to a portfolio.'}), 403
+
+    portfolio.strategies.append(strategy)
+    db.session.commit()
+    return jsonify(portfolio.to_dict())
+
+
 # --- Advanced Backtesting Endpoints ---
+
+@app.route('/api/portfolios/<int:portfolio_id>/backtest', methods=['POST'])
+@token_required
+def backtest_portfolio(current_user, portfolio_id):
+    """
+    Runs a backtest on a full portfolio of strategies.
+    """
+    from portfolio_backtester import PortfolioBacktester
+
+    portfolio = Portfolio.query.get_or_404(portfolio_id)
+    if portfolio.author != current_user:
+        return jsonify({'error': 'Not authorized to backtest this portfolio.'}), 403
+
+    try:
+        backtester = PortfolioBacktester(portfolio_id=portfolio_id)
+        results = backtester.run()
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'error': 'An error occurred during portfolio backtest.', 'details': str(e)}), 500
 
 @app.route('/api/strategies/<int:strategy_id>/walkforward', methods=['POST'])
 @token_required
