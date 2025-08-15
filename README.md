@@ -103,6 +103,22 @@ The platform is built with a modular architecture, consisting of three main comp
 
 You can interact with the API using a tool like `curl` or Postman. Here is a simple workflow:
 
+### Running with Docker
+
+This is the recommended way to run the application, as it handles all services and dependencies automatically.
+
+1.  **Build and run the services:**
+    ```bash
+    docker-compose up --build
+    ```
+
+2.  The services will be available at:
+    *   **Web App API:** `http://localhost:5000`
+    *   **Swagger API Docs:** `http://localhost:5000/apidocs`
+    *   **Chatbot Service:** `http://localhost:8000`
+
+    *(Note: The first time you run this, it may take a long time to build the chatbot service image due to the size of the machine learning models.)*
+
 1.  **Register a new user:**
     ```bash
     curl -X POST -H "Content-Type: application/json" -d '{"username": "testuser", "email": "test@example.com", "password": "password123"}' http://127.0.0.1:5000/api/register

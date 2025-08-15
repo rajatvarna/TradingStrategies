@@ -87,5 +87,36 @@ class TestBacktester(unittest.TestCase):
         # 4. Check if the initial capital is correct
         self.assertEqual(equity_curve.iloc[0], 100000)
 
+    def test_calculate_statistics(self):
+        """Test the performance statistics calculation with a predictable equity curve."""
+        # 1. Create a simple, predictable equity curve
+        dates = pd.to_datetime(pd.date_range(start='2022-01-01', end='2023-01-01', periods=252))
+        equity = np.linspace(100000, 120000, 252)
+        equity_curve = pd.Series(equity, index=dates)
+
+        # 2. Manually calculate expected values
+        # CAGR: (120000/100000)^(1/1) - 1 = 0.2 = 20%
+        expected_cagr = 20.0
+        # Max Drawdown: There is no drawdown in a linearly increasing curve
+        expected_max_drawdown = 0.0
+
+        # Create a backtester instance and set its equity curve
+        backtester = Backtester(strategy=self.strategy, initial_capital=100000)
+        backtester.equity_curve = equity_curve
+
+        # 3. Calculate statistics
+        # We need a benchmark to avoid errors, but for this test, alpha/beta are not important.
+        stats = backtester.calculate_statistics(benchmark_ticker='SPY')
+
+        # 4. Assert that the calculated values are close to the expected values
+        self.assertAlmostEqual(stats['CAGR (%)'], expected_cagr, places=1)
+        self.assertAlmostEqual(stats['Max Drawdown (%)'], expected_max_drawdown, places=1)
+
+        # Volatility and Sharpe should be calculated, but their exact value is less intuitive.
+        # We can assert they are not zero.
+        self.assertNotEqual(stats['Volatility (%)'], 0)
+        self.assertNotEqual(stats['Sharpe Ratio'], 0)
+
+
 if __name__ == '__main__':
     unittest.main()

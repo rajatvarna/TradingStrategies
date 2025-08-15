@@ -1,17 +1,10 @@
-import sys
-import os
 import json
 import numpy as np
 import copy
 
-# --- Path Setup ---
-project_root = os.path.abspath(os.path.dirname(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from web_app.app import app, db, Strategy
 from quant_strategies.strategy_blocks import CustomStrategy
 from quant_strategies.backtester import Backtester
+from web_app.models import Strategy
 
 def set_nested_param(config: dict, param_path: str, value):
     """
@@ -23,19 +16,17 @@ def set_nested_param(config: dict, param_path: str, value):
         current_level = current_level[key]
     current_level[keys[-1]] = value
 
-def run_optimization(strategy_id: int, optimization_params: dict, data=None):
+def run_optimization(strategy_obj: Strategy, optimization_params: dict, data=None):
     """
     Runs a parameter optimization for a given strategy and returns the results.
     Can accept a pre-loaded DataFrame to run the optimizations on, in which case
     it will use that data instead of downloading it.
     """
-    with app.app_context():
-        strategy_obj = Strategy.query.get(strategy_id)
-        if not strategy_obj:
-            raise ValueError(f"Strategy with ID {strategy_id} not found.")
+    if not strategy_obj:
+        raise ValueError("A valid strategy object must be provided.")
 
-        print(f"--- Starting optimization for strategy: {strategy_obj.name} ---")
-        base_config = json.loads(strategy_obj.config_json)
+    print(f"--- Starting optimization for strategy: {strategy_obj.name} ---")
+    base_config = json.loads(strategy_obj.config_json)
 
     param_path = optimization_params['parameter_name']
     start = optimization_params['start']

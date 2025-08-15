@@ -1,6 +1,9 @@
 from flask import Blueprint, request, jsonify
 from web_app.models import db, Portfolio, Strategy
 from web_app.auth_decorators import token_required
+from optimizer import run_optimization
+from portfolio_backtester import PortfolioBacktester
+from walk_forward_analyzer import run_walk_forward_analysis
 
 analysis_bp = Blueprint('analysis_bp', __name__)
 
@@ -10,14 +13,12 @@ def backtest_portfolio(current_user, portfolio_id):
     """
     Runs a backtest on a full portfolio of strategies.
     """
-    from portfolio_backtester import PortfolioBacktester
-
     portfolio = Portfolio.query.get_or_404(portfolio_id)
     if portfolio.author != current_user:
         return jsonify({'error': 'Not authorized to backtest this portfolio.'}), 403
 
     try:
-        backtester = PortfolioBacktester(portfolio_id=portfolio_id)
+        backtester = PortfolioBacktester(portfolio_obj=portfolio)
         results = backtester.run()
         return jsonify(results)
     except Exception as e:
@@ -29,8 +30,6 @@ def walk_forward_strategy(current_user, strategy_id):
     """
     Runs a walk-forward analysis for a given strategy.
     """
-    from walk_forward_analyzer import run_walk_forward_analysis
-
     strategy = Strategy.query.get_or_404(strategy_id)
     if strategy.author != current_user:
         return jsonify({'error': 'You can only analyze your own strategies.'}), 403
@@ -46,7 +45,7 @@ def walk_forward_strategy(current_user, strategy_id):
         in_sample_days = data['in_sample_days']
         out_of_sample_days = data['out_of_sample_days']
 
-        results = run_walk_forward_analysis(strategy_id, optimization_params, in_sample_days, out_of_sample_days)
+        results = run_walk_forward_analysis(strategy, optimization_params, in_sample_days, out_of_sample_days)
         return jsonify(results)
     except Exception as e:
         return jsonify({'error': 'An error occurred during walk-forward analysis.', 'details': str(e)}), 500
@@ -57,8 +56,6 @@ def optimize_strategy(current_user, strategy_id):
     """
     Runs parameter optimization for a given strategy.
     """
-    from optimizer import run_optimization # Moved import to prevent circular dependency
-
     strategy = Strategy.query.get_or_404(strategy_id)
     if strategy.author != current_user:
         return jsonify({'error': 'You can only optimize your own strategies.'}), 403
@@ -69,7 +66,7 @@ def optimize_strategy(current_user, strategy_id):
         return jsonify({'error': f'Missing one or more required fields: {required_fields}'}), 400
 
     try:
-        results = run_optimization(strategy_id, data)
+        results = run_optimization(strategy, data)
         return jsonify(results)
     except Exception as e:
         return jsonify({'error': 'An error occurred during optimization.', 'details': str(e)}), 500

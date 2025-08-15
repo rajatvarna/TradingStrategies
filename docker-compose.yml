@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  web_app:
+    build:
+      context: .
+      dockerfile: web_app/Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+      - app_db:/app/web_app
+    environment:
+      - FLASK_APP=web_app.app:create_app()
+      - DATABASE_URI=sqlite:////app/web_app/app.db
+    # The chatbot depends on the web_app's database
+    depends_on:
+      - db_init
+
+  chatbot:
+    build:
+      context: .
+      dockerfile: chatbot_service/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - app_db:/app/web_app
+    depends_on:
+      - web_app
+
+  # A one-off service to initialize the database if it doesn't exist
+  db_init:
+    build:
+      context: .
+      dockerfile: web_app/Dockerfile
+    command: ["flask", "db", "upgrade"]
+    volumes:
+      - .:/app
+      - app_db:/app/web_app
+
+volumes:
+  app_db:

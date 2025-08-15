@@ -1,16 +1,9 @@
-import sys
-import os
 import json
 import pandas as pd
 import numpy as np
 import copy
 
-# --- Path Setup ---
-project_root = os.path.abspath(os.path.dirname(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from web_app.app import app, db, Portfolio
+from web_app.models import Portfolio
 from quant_strategies.strategy_blocks import CustomStrategy
 from quant_strategies.backtester import Backtester
 
@@ -18,22 +11,22 @@ class PortfolioBacktester:
     """
     Runs a backtest on a portfolio of multiple strategies.
     """
-    def __init__(self, portfolio_id: int, initial_capital=1000000):
-        self.portfolio_id = portfolio_id
+    def __init__(self, portfolio_obj: Portfolio, initial_capital=1000000):
+        if not portfolio_obj:
+            raise ValueError("A valid portfolio object must be provided.")
+        self.portfolio = portfolio_obj
         self.initial_capital = initial_capital
-        self.portfolio = None
         self.strategies = []
+        self._load_strategies()
 
-    def _load_portfolio_and_strategies(self):
-        """Loads the portfolio and instantiates its strategies from the database."""
-        with app.app_context():
-            self.portfolio = Portfolio.query.get(self.portfolio_id)
-            if not self.portfolio:
-                raise ValueError(f"Portfolio with ID {self.portfolio_id} not found.")
+    def _load_strategies(self):
+        """Instantiates the strategies from the portfolio object."""
+        if not self.portfolio.strategies:
+            raise ValueError("Portfolio contains no strategies.")
 
-            for strategy_obj in self.portfolio.strategies:
-                config = json.loads(strategy_obj.config_json)
-                self.strategies.append(CustomStrategy(config=config))
+        for strategy_obj in self.portfolio.strategies:
+            config = json.loads(strategy_obj.config_json)
+            self.strategies.append(CustomStrategy(config=config))
 
     def _combine_signals(self):
         """
