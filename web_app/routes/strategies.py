@@ -56,11 +56,11 @@ def create_strategy(current_user):
 
     is_public = data.get('is_public', True)
 
-    # Enforce tier limits for private strategies
-    if not is_public and current_user.tier == 'free':
+    # Enforce plan limits for private strategies
+    if not is_public and current_user.plan:
         private_strategy_count = Strategy.query.filter_by(author=current_user, is_public=False).count()
-        if private_strategy_count >= 1:
-            raise ForbiddenError('Free tier users are limited to 1 private strategy. Please upgrade to premium.')
+        if private_strategy_count >= current_user.plan.private_strategies_limit:
+            raise ForbiddenError(f'Your current plan allows for {current_user.plan.private_strategies_limit} private strategies. Please upgrade for more.')
 
     config_dict = data['config']
 
@@ -134,7 +134,7 @@ def get_public_strategies(current_user):
             query = query.filter(BacktestResult.max_drawdown <= float(request.args['max_drawdown']))
 
     if request.args.get('downloadable', 'false').lower() == 'true':
-        if current_user.tier != 'premium':
+        if not current_user.plan or current_user.plan.name != 'premium':
             return jsonify([])
 
     # Sorting
@@ -222,7 +222,7 @@ def download_strategy(current_user, strategy_id):
       404:
         description: Strategy not found.
     """
-    if current_user.tier != 'premium':
+    if not current_user.plan or current_user.plan.name != 'premium':
         raise ForbiddenError('This feature is only available to premium users.')
 
     original_strategy = Strategy.query.get_or_404(strategy_id)

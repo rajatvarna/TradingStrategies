@@ -17,7 +17,7 @@ class User(db.Model):
     username = db.Column(db.String(64), index=True, unique=True, nullable=False)
     email = db.Column(db.String(120), index=True, unique=True, nullable=False)
     password_hash = db.Column(db.String(128))
-    tier = db.Column(db.String(32), default='free', nullable=False) # e.g., 'free', 'premium', 'developer'
+    plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'), nullable=True)
 
     strategies = db.relationship('Strategy', backref='author', lazy='dynamic')
     api_keys = db.relationship('APIKey', backref='user', lazy='dynamic', cascade="all, delete-orphan")
@@ -42,12 +42,16 @@ class APIKey(db.Model):
     prefix = db.Column(db.String(8), unique=True, nullable=False) # For identification
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+    last_used = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(32), default='active', nullable=False) # active, revoked
 
     def to_dict(self):
         return {
             'id': self.id,
             'prefix': self.prefix,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'last_used': self.last_used.isoformat() if self.last_used else None,
+            'status': self.status
         }
 
 class Strategy(db.Model):
@@ -172,4 +176,25 @@ class Transaction(db.Model):
             'amount': self.amount,
             'stripe_charge_id': self.stripe_charge_id,
             'timestamp': self.timestamp.isoformat()
+        }
+
+class Plan(db.Model):
+    """
+    Represents a subscription plan.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True, nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    private_strategies_limit = db.Column(db.Integer, nullable=False)
+    api_access = db.Column(db.Boolean, default=False, nullable=False)
+
+    users = db.relationship('User', backref='plan', lazy='dynamic')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'price': self.price,
+            'private_strategies_limit': self.private_strategies_limit,
+            'api_access': self.api_access
         }

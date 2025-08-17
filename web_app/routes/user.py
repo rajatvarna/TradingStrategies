@@ -38,6 +38,21 @@ def get_api_keys(current_user):
     keys = APIKey.query.filter_by(user_id=current_user.id).all()
     return jsonify([key.to_dict() for key in keys]), 200
 
+@user_bp.route('/api/me/api-keys/<int:key_id>/revoke', methods=['POST'])
+@token_required
+def revoke_api_key(current_user, key_id):
+    """
+    Revokes an API key.
+    """
+    api_key = APIKey.query.get_or_404(key_id)
+    if api_key.user_id != current_user.id:
+        raise ForbiddenError('You can only revoke your own API keys.')
+
+    api_key.status = 'revoked'
+    db.session.commit()
+
+    return jsonify({'message': f'API key with prefix {api_key.prefix} has been revoked.'})
+
 @user_bp.route('/api/signals/<int:strategy_id>', methods=['GET'])
 @api_key_required
 def get_strategy_signals(current_user, strategy_id):
@@ -45,8 +60,8 @@ def get_strategy_signals(current_user, strategy_id):
     Returns the latest trading signal for a given strategy.
     Requires API key authentication and 'developer' tier access.
     """
-    # 1. Tier-based access control
-    if current_user.tier != 'developer':
+    # 1. Plan-based access control
+    if not current_user.plan or not current_user.plan.api_access:
         raise ForbiddenError('Access denied. This feature requires a developer tier subscription.')
 
     strategy_obj = Strategy.query.get_or_404(strategy_id)

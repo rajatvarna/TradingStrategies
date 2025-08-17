@@ -10,7 +10,7 @@ authors = [
 ]
 description = "A library for backtesting quantitative trading strategies"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -24,6 +24,23 @@ dependencies = [
     "matplotlib",
     "pyarrow",
     "PyYAML",
+    "Flask>=2.0",
+    "Flask-SQLAlchemy>=2.5",
+    "Flask-Migrate>=3.0",
+    "Werkzeug>=2.0",
+    "bcrypt",
+    "PyJWT",
+    "python-dotenv",
+    "flasgger",
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "langchain",
+    "faiss-cpu",
+    "sentence-transformers",
+    "SQLAlchemy",
+    "pytest",
+    "stripe",
 ]
 
 [project.urls]

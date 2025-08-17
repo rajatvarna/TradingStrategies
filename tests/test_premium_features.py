@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch, MagicMock
 from web_app.app import create_app
 from web_app.extensions import db
-from web_app.models import User, Strategy
+from web_app.models import User, Strategy, Plan
 from tests.utils import get_auth_token
 
 class PremiumFeaturesTestCase(unittest.TestCase):
@@ -19,10 +19,16 @@ class PremiumFeaturesTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db.create_all()
-            # Create users for different tiers
-            free_user = User(username='freeuser', email='free@example.com', tier='free')
+            # Create plans
+            free_plan = Plan(name='free', price=0, private_strategies_limit=1, api_access=False)
+            premium_plan = Plan(name='premium', price=10, private_strategies_limit=10, api_access=True)
+            db.session.add_all([free_plan, premium_plan])
+            db.session.commit()
+
+            # Create users for different plans
+            free_user = User(username='freeuser', email='free@example.com', plan_id=free_plan.id)
             free_user.set_password('password123')
-            premium_user = User(username='premiumuser', email='premium@example.com', tier='premium')
+            premium_user = User(username='premiumuser', email='premium@example.com', plan_id=premium_plan.id)
             premium_user.set_password('password123')
             db.session.add_all([free_user, premium_user])
             db.session.commit()
@@ -47,7 +53,7 @@ class PremiumFeaturesTestCase(unittest.TestCase):
         strategy_data_2 = {'name': 'Private Strategy 2', 'config': {}, 'is_public': False}
         response_2 = self.client.post('/api/strategies', headers=headers, data=json.dumps(strategy_data_2), content_type='application/json')
         self.assertEqual(response_2.status_code, 403)
-        self.assertIn('Free tier users are limited to 1 private strategy', response_2.get_data(as_text=True))
+        self.assertIn('Your current plan allows for 1 private strategies. Please upgrade for more.', response_2.get_data(as_text=True))
 
     def test_premium_user_can_create_multiple_private_strategies(self):
         """Test that a premium user can create multiple private strategies."""
@@ -75,6 +81,11 @@ class PremiumFeaturesTestCase(unittest.TestCase):
         strategy_id = strategy_response.get_json()['id']
 
         # Attempt to access premium endpoints
+        with self.app.app_context():
+            user = User.query.filter_by(username='freeuser').first()
+            user.plan = Plan.query.filter_by(name='free').first()
+            db.session.commit()
+
         optimize_params = {'parameter_name': 'period', 'start': 10, 'end': 20, 'step': 1}
         optimize_response = self.client.post(f'/api/strategies/{strategy_id}/optimize', headers=headers, data=json.dumps(optimize_params), content_type='application/json')
         self.assertEqual(optimize_response.status_code, 403)

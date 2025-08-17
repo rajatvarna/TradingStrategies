@@ -2,7 +2,7 @@ from functools import wraps
 from flask import request, jsonify, current_app
 import jwt
 import bcrypt
-from web_app.models import User, APIKey
+from web_app.models import User, APIKey, db
 
 def token_required(f):
     @wraps(f)
@@ -32,11 +32,16 @@ def api_key_required(f):
 
         # Find key by prefix
         prefix = api_key[:8]
-        key_record = APIKey.query.filter_by(prefix=prefix).first()
+        key_record = APIKey.query.filter_by(prefix=prefix, status='active').first()
 
         if key_record and bcrypt.checkpw(api_key.encode('utf-8'), key_record.key_hash.encode('utf-8')):
+            # Update last_used timestamp
+            from datetime import datetime
+            key_record.last_used = datetime.utcnow()
+            db.session.commit()
+
             current_user = User.query.get(key_record.user_id)
             return f(current_user, *args, **kwargs)
 
-        return jsonify({'message': 'API key is invalid!'}), 401
+        return jsonify({'message': 'API key is invalid or revoked!'}), 401
     return decorated

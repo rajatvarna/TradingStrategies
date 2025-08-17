@@ -162,9 +162,12 @@ class APITestCase(unittest.TestCase):
                          data=json.dumps({'username': 'analysis_user', 'email': 'analysis@example.com', 'password': 'password123'}),
                          content_type='application/json')
         with self.app.app_context():
-            from web_app.models import User
+            from web_app.models import User, Plan
+            premium_plan = Plan(name='premium', price=10, private_strategies_limit=10, api_access=True)
+            db.session.add(premium_plan)
+            db.session.commit()
             user = User.query.filter_by(username='analysis_user').first()
-            user.tier = 'premium'
+            user.plan_id = premium_plan.id
             db.session.commit()
         token = get_auth_token(self.client, 'analysis_user', 'password123')
         headers = {'Authorization': f'Bearer {token}'}
