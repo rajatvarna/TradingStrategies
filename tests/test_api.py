@@ -243,5 +243,33 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(data[1]['name'], 'S1')
         self.assertEqual(data[2]['name'], 'S3')
 
+    def test_get_strategy_parameters(self):
+        """Test getting the parameters for a strategy."""
+        # Register and log in to get a token
+        self.client.post('/api/register',
+                         data=json.dumps({'username': 'param_user', 'email': 'param@example.com', 'password': 'password123'}),
+                         content_type='application/json')
+        token = get_auth_token(self.client, 'param_user', 'password123')
+        headers = {'Authorization': f'Bearer {token}'}
+
+        # Create a strategy with parameters
+        strategy_data = {
+            'name': 'Param Strategy',
+            'config': {
+                'parameters': {
+                    'ma_period': {'type': 'int', 'value': 20, 'default': 20, 'min': 5, 'max': 200}
+                }
+            }
+        }
+        strategy_response = self.client.post('/api/strategies', headers=headers, data=json.dumps(strategy_data), content_type='application/json')
+        strategy_id = strategy_response.get_json()['id']
+
+        # Get the parameters
+        response = self.client.get(f'/api/strategies/{strategy_id}/parameters', headers=headers)
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn('ma_period', data)
+        self.assertEqual(data['ma_period']['value'], 20)
+
 if __name__ == '__main__':
     unittest.main()

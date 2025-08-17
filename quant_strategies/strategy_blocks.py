@@ -133,6 +133,17 @@ class CustomStrategy(Strategy):
         self.entry_rule = self._parse_block_config(self.params['entry_rule'])
         self.exit_rule = self._parse_block_config(self.params['exit_rule'])
 
+    def _get_param_value(self, value):
+        """
+        Gets a parameter's value from the config. If the value is a string
+        like 'param.my_param', it fetches it from the 'parameters' dictionary.
+        """
+        if isinstance(value, str) and value.startswith('param.'):
+            param_name = value.split('.')[1]
+            if param_name in self.params.get('parameters', {}):
+                return self.params['parameters'][param_name]['value']
+        return value
+
     def _parse_block_config(self, block_config: dict) -> Block:
         """
         Recursively parses a dictionary configuration and instantiates Block objects.
@@ -153,7 +164,7 @@ class CustomStrategy(Strategy):
             if isinstance(value, dict) and 'class' in value:
                 args[key] = self._parse_block_config(value)
             else:
-                args[key] = value
+                args[key] = self._get_param_value(value)
 
         return block_class(**args)
 

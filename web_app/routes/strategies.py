@@ -8,6 +8,20 @@ from datetime import datetime, timedelta
 
 strategies_bp = Blueprint('strategies_bp', __name__)
 
+def _validate_parameters(parameters):
+    """
+    Validates the structure of the parameters object.
+    """
+    if not isinstance(parameters, dict):
+        raise ValidationError("Parameters must be a dictionary.")
+
+    for name, definition in parameters.items():
+        if not all(k in definition for k in ['type', 'value', 'default']):
+            raise ValidationError(f"Parameter '{name}' is missing required keys ('type', 'value', 'default').")
+
+        if definition['type'] not in ['int', 'float', 'str']:
+            raise ValidationError(f"Parameter '{name}' has an invalid type.")
+
 @strategies_bp.route('/api/strategies', methods=['POST'])
 @token_required
 def create_strategy(current_user):
@@ -63,6 +77,8 @@ def create_strategy(current_user):
             raise ForbiddenError(f'Your current plan allows for {current_user.plan.private_strategies_limit} private strategies. Please upgrade for more.')
 
     config_dict = data['config']
+    if 'parameters' in config_dict:
+        _validate_parameters(config_dict['parameters'])
 
     new_strategy = Strategy(
         name=data['name'],
@@ -76,6 +92,21 @@ def create_strategy(current_user):
     db.session.commit()
 
     return jsonify(new_strategy.to_dict()), 201
+
+@strategies_bp.route('/api/strategies/<int:strategy_id>/parameters', methods=['GET'])
+@token_required
+def get_strategy_parameters(current_user, strategy_id):
+    """
+    Gets the parameters for a specific strategy.
+    """
+    strategy = Strategy.query.get_or_404(strategy_id)
+    if strategy.author != current_user and not strategy.is_public:
+        raise ForbiddenError("You don't have permission to view this strategy.")
+
+    config = json.loads(strategy.config_json)
+    parameters = config.get('parameters', {})
+
+    return jsonify(parameters)
 
 @strategies_bp.route('/api/strategies', methods=['GET'])
 @token_required
