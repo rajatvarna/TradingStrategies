@@ -271,5 +271,28 @@ class APITestCase(unittest.TestCase):
         self.assertIn('ma_period', data)
         self.assertEqual(data['ma_period']['value'], 20)
 
+    def test_dashboard_access(self):
+        """Test that the dashboard is accessible and displays user data."""
+        # Register and log in to get a token
+        self.client.post('/api/register',
+                         data=json.dumps({'username': 'dashboard_user', 'email': 'dashboard@example.com', 'password': 'password123'}),
+                         content_type='application/json')
+        token = get_auth_token(self.client, 'dashboard_user', 'password123')
+        headers = {'Authorization': f'Bearer {token}'}
+
+        # Create a strategy for the user
+        with self.app.app_context():
+            from web_app.models import User
+            user = User.query.filter_by(username='dashboard_user').first()
+            s1 = Strategy(name='Dashboard Strategy', is_public=False, config_json='{}', author=user)
+            db.session.add(s1)
+            db.session.commit()
+
+        # Access the dashboard
+        response = self.client.get('/dashboard', headers=headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'Welcome, dashboard_user!', response.data)
+        self.assertIn(b'Dashboard Strategy', response.data)
+
 if __name__ == '__main__':
     unittest.main()

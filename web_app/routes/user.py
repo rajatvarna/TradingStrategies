@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, render_template
 from web_app.models import db, User, APIKey, PaperAccount, Strategy
 from web_app.auth_decorators import token_required, api_key_required
 from web_app.errors import ForbiddenError
@@ -139,3 +139,11 @@ def get_paper_account(current_user):
         'created_at': account.created_at.isoformat(),
         'positions': positions
     })
+
+@user_bp.route('/dashboard', methods=['GET'])
+@token_required
+def dashboard(current_user):
+    """
+    Renders the user's dashboard.
+    """
+    return render_template('dashboard.html', user=current_user)

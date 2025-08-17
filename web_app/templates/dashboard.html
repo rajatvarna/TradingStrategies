@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <nav>
+                <div class="logo">QuantPlatform</div>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="#">Strategies</a></li>
+                    <li><a href="#">Pricing</a></li>
+                    <li><a href="#">Docs</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <h1>Welcome, {{ user.username }}!</h1>
+
+            <section class="dashboard-section">
+                <h2>Your Strategies</h2>
+                <div class="card-container">
+                    {% for strategy in user.strategies %}
+                    <div class="card">
+                        <h3>{{ strategy.name }}</h3>
+                        <p>Category: {{ strategy.category }}</p>
+                        <p>Public: {{ strategy.is_public }}</p>
+                    </div>
+                    {% else %}
+                    <p>You haven't created any strategies yet.</p>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="dashboard-section">
+                <h2>Your Portfolios</h2>
+                <div class="card-container">
+                    {% for portfolio in user.portfolios %}
+                    <div class="card">
+                        <h3>{{ portfolio.name }}</h3>
+                    </div>
+                    {% else %}
+                    <p>You haven't created any portfolios yet.</p>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="dashboard-section">
+                <h2>Paper Trading Account</h2>
+                {% if user.paper_account %}
+                <div class="card">
+                    <p>Balance: ${{ user.paper_account.balance }}</p>
+                    <p>Buying Power: ${{ user.paper_account.buying_power }}</p>
+                </div>
+                {% else %}
+                <p>You don't have a paper trading account yet. Deploy a strategy to create one.</p>
+                {% endif %}
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Quant Platform. All rights reserved.</p>
+        </div>
+    </footer>
+</body>
+</html>
