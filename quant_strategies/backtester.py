@@ -6,6 +6,7 @@ import yfinance as yf
 
 from quant_strategies.strategy_base import Strategy
 from quant_strategies.order import Order
+from quant_strategies.data_manager import DataManager
 
 
 class Backtester:
@@ -24,7 +25,14 @@ class Backtester:
                  trade_risk_pct=0.01, margin=1.5, data=None):
         """
         Initializes the Backtester.
-        Can accept a pre-loaded DataFrame to use instead of downloading new data.
+
+        Args:
+            strategy (Strategy): The strategy instance to backtest.
+            initial_capital (float): The starting capital for the portfolio.
+            max_positions (int): The maximum number of concurrent open positions.
+            trade_risk_pct (float): The percentage of portfolio to risk on a single trade.
+            margin (float): The margin multiplier to use for position sizing.
+            data (pd.DataFrame, optional): Pre-loaded market data to avoid re-downloading.
         """
         self.strategy = strategy
         self.initial_capital = initial_capital
@@ -38,7 +46,11 @@ class Backtester:
 
     def run(self):
         """
-        Runs the backtest by dispatching to the appropriate handler.
+        Runs the backtest by dispatching to the appropriate handler based on strategy type.
+
+        Returns:
+            tuple: A tuple containing the equity curve (pd.Series) and trade log (pd.DataFrame).
+                   Returns (None, None) if the backtest cannot be run.
         """
         print(f"Running backtest in {'Order-based' if self.is_order_based else 'Signal-based'} mode.")
         if self.is_order_based:
@@ -49,12 +61,15 @@ class Backtester:
     def _run_signal_based_backtest(self):
         """
         Runs the simulation for signal-based strategies.
-        This is the original backtesting logic.
+
+        This mode assumes the strategy provides a simple signal (1, -1, 0) for each asset.
+        The backtester then handles position sizing and execution based on these signals.
         """
         # 1. Get signals and data from the strategy
         signals = self.strategy.generate_signals(data=self.data)
 
-        # 2. Consolidate data
+        # 2. Consolidate all ticker data into a single DataFrame for easier access.
+        # Each column is prefixed with the ticker name (e.g., 'AAPL_Close', 'GOOG_Signal').
         all_data_frames = [df.add_prefix(f'{ticker}_') for ticker, df in signals.items() if not df.empty]
         if not all_data_frames:
             print("No signal data available. Exiting backtest.")
@@ -62,28 +77,28 @@ class Backtester:
 
         portfolio_data = pd.concat(all_data_frames, axis=1)
         portfolio_data.sort_index(inplace=True)
-        portfolio_data.ffill(inplace=True)
-        portfolio_data.fillna(0, inplace=True)
+        portfolio_data.ffill(inplace=True) # Forward-fill to handle missing data points
+        portfolio_data.fillna(0, inplace=True) # Fill remaining NaNs with 0
 
-        # 3. Initialize portfolio
+        # 3. Initialize portfolio state variables
         portfolio_value = [self.initial_capital]
         portfolio_dates = [portfolio_data.index[0]]
-        open_positions = {}
+        open_positions = {}  # {ticker: {'entry_date':, 'entry_price':, 'quantity':}}
         self.trade_log = []
 
-        # 4. Main simulation loop
+        # 4. Main simulation loop: Iterate through each day of the backtest period.
         for i in range(1, len(portfolio_data)):
             current_date = portfolio_data.index[i]
             prev_date = portfolio_data.index[i-1]
             current_day_data = portfolio_data.iloc[i]
 
-            # Update portfolio value
+            # Mark-to-market: Update portfolio value based on the price changes of open positions.
             current_capital = portfolio_value[-1]
             pnl = sum((current_day_data[f'{t}_Close'] - portfolio_data.loc[prev_date, f'{t}_Close']) * p['quantity']
                       for t, p in open_positions.items() if portfolio_data.loc[prev_date, f'{t}_Close'] > 0)
             current_capital += pnl
 
-            # Process exits
+            # Process exits: Check for sell signals for any open positions.
             exited_tickers = []
             for ticker, pos in list(open_positions.items()):
                 if current_day_data[f'{ticker}_Signal'] == -1:
@@ -93,21 +108,24 @@ class Backtester:
             for ticker in exited_tickers:
                 del open_positions[ticker]
 
-            # Process entries
+            # Process entries: Check for buy signals, respecting the max position limit.
             num_slots = self.max_positions - len(open_positions)
             if num_slots > 0:
+                # Find all tickers with a buy signal that are not already open.
                 candidates = [t for t in self.strategy.tickers if current_day_data[f'{t}_Signal'] == 1 and t not in open_positions]
                 for ticker in candidates[:num_slots]:
                     entry_price = current_day_data[f'{ticker}_Close']
                     if entry_price > 0:
+                        # Simple position sizing: invest a fixed percentage of capital.
                         amount_to_invest = current_capital * self.trade_risk_pct * self.margin
                         quantity = amount_to_invest / entry_price
                         open_positions[ticker] = {'entry_date': current_date, 'entry_price': entry_price, 'quantity': quantity}
 
+            # Record the portfolio's value for this day.
             portfolio_value.append(current_capital)
             portfolio_dates.append(current_date)
 
-        # 5. Finalize
+        # 5. Finalization: Close any remaining open positions at the end of the backtest.
         self._close_open_positions(portfolio_data.index[-1], portfolio_data.iloc[-1], open_positions)
         self.equity_curve = pd.Series(portfolio_value, index=portfolio_dates)
         self.trade_log = pd.DataFrame(self.trade_log)
@@ -117,51 +135,64 @@ class Backtester:
     def _run_order_based_backtest(self):
         """
         Runs the simulation for order-based strategies.
-        This is a more event-driven style of backtesting.
+
+        This mode is more flexible. The strategy is given the portfolio state and
+        is responsible for generating specific buy/sell orders with quantities.
         """
-        # 1. Backtester downloads its own daily data for accounting
+        # 1. Backtester downloads its own daily data for portfolio accounting and order execution.
         print("Backtester downloading daily data for portfolio accounting...")
-        daily_data = yf.download(self.strategy.tickers, start=self.strategy.start_date, end=self.strategy.end_date)
+        dm = DataManager()
+        daily_data = dm.download_data(
+            self.strategy.tickers,
+            start_date=self.strategy.start_date,
+            end_date=self.strategy.end_date,
+            save=False
+        )
 
         if daily_data.empty:
             print("Could not download daily data for accounting. Exiting.")
             return None, None
 
-        # 2. Initialize portfolio
+        # 2. Initialize portfolio state variables
         portfolio_value = [self.initial_capital]
         portfolio_dates = [daily_data.index[0]]
-        open_positions = {} # {ticker: {'entry_date':, 'entry_price':, 'quantity':}}
+        open_positions = {}  # {ticker: {'entry_date':, 'entry_price':, 'quantity':}}
         self.trade_log = []
 
-        # 3. Main simulation loop
+        # 3. Main simulation loop: Iterate through each day of the backtest period.
         for i in range(1, len(daily_data)):
             current_date = daily_data.index[i]
             prev_date = daily_data.index[i-1]
 
-            # Update portfolio value
+            # Mark-to-market: Update portfolio value based on the price changes of open positions.
             current_capital = portfolio_value[-1]
             pnl = sum((daily_data.loc[current_date, ('Close', t)] - daily_data.loc[prev_date, ('Close', t)]) * p['quantity']
                       for t, p in open_positions.items() if daily_data.loc[prev_date, ('Close', t)] > 0)
             current_capital += pnl
 
-            # Get and execute orders from the strategy
+            # Get and execute orders from the strategy for the current day.
+            # The strategy receives the current portfolio state to make decisions.
             portfolio_state = {'date': current_date, 'capital': current_capital, 'positions': open_positions, 'daily_data': daily_data}
             orders = self.strategy.generate_orders(portfolio_state)
 
             for order in orders:
+                # Use the closing price of the day for order execution.
                 price = daily_data.loc[current_date, ('Close', order.symbol)]
                 if pd.isna(price) or price <= 0: continue
 
+                # Execute buy orders if there is space in the portfolio.
                 if order.action in ['BUY', 'SELL_SHORT'] and len(open_positions) < self.max_positions:
                     open_positions[order.symbol] = {'entry_date': current_date, 'entry_price': price, 'quantity': order.quantity}
+                # Execute sell orders for existing positions.
                 elif order.action in ['SELL', 'COVER'] and order.symbol in open_positions:
                     pos = open_positions.pop(order.symbol)
                     self._log_trade(order.symbol, pos['entry_date'], pos['entry_price'], current_date, price)
 
+            # Record the portfolio's value for this day.
             portfolio_value.append(current_capital)
             portfolio_dates.append(current_date)
 
-        # 4. Finalize
+        # 4. Finalization: Close any remaining open positions at the end of the backtest.
         last_date = daily_data.index[-1]
         last_prices = daily_data.loc[last_date]
         for ticker, pos in open_positions.items():
@@ -174,6 +205,7 @@ class Backtester:
         return self.equity_curve, self.trade_log
 
     def _log_trade(self, ticker, buy_date, buy_price, sell_date, sell_price, status='Closed'):
+        """Helper function to record a single trade's details."""
         trade_return = (sell_price - buy_price) / buy_price if buy_price > 0 else 0
         self.trade_log.append({
             'Ticker': ticker, 'Buy Date': buy_date, 'Buy Price': buy_price,
@@ -181,11 +213,21 @@ class Backtester:
         })
 
     def _close_open_positions(self, last_date, last_day_data, open_positions):
+        """Closes all open positions at the end of the backtest period."""
         for ticker, pos_info in open_positions.items():
             last_price = last_day_data[f'{ticker}_Close']
             self._log_trade(ticker, pos_info['entry_date'], pos_info['entry_price'], last_date, last_price, status='Open')
 
     def calculate_statistics(self, benchmark_ticker='^GSPC'):
+        """
+        Calculates key performance indicators (KPIs) for the backtest results.
+
+        Args:
+            benchmark_ticker (str): The ticker symbol for the benchmark (e.g., S&P 500).
+
+        Returns:
+            dict: A dictionary containing the calculated performance metrics.
+        """
         if self.equity_curve is None or self.equity_curve.empty:
             print("Cannot calculate statistics: Equity curve is empty.")
             return {metric: 0 for metric in ['CAGR (%)', 'Volatility (%)', 'Sharpe Ratio', 'Max Drawdown (%)', 'Alpha', 'Beta']}
@@ -194,23 +236,35 @@ class Backtester:
         metrics = {}
         returns = self.equity_curve.pct_change().dropna()
 
+        # --- Performance Metrics ---
         years = (self.equity_curve.index[-1] - self.equity_curve.index[0]).days / 365.25
+        # Compound Annual Growth Rate (CAGR)
         metrics['CAGR (%)'] = ((self.equity_curve.iloc[-1] / self.initial_capital) ** (1/years) - 1) * 100 if years > 0 else 0
+        # Annualized Volatility
         metrics['Volatility (%)'] = returns.std() * np.sqrt(252) * 100
+        # Sharpe Ratio (assuming risk-free rate is 0)
         metrics['Sharpe Ratio'] = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 1e-9 else 0
 
+        # --- Risk Metrics ---
+        # Maximum Drawdown
         roll_max = self.equity_curve.cummax()
         drawdown = (self.equity_curve - roll_max) / roll_max
         metrics['Max Drawdown (%)'] = drawdown.min() * 100
 
+        # --- Alpha and Beta vs. Benchmark ---
         try:
             bench_data = yf.download(benchmark_ticker, start=self.equity_curve.index[0], end=self.equity_curve.index[-1])
             bench_returns = bench_data['Close'].pct_change().dropna()
+
+            # Align strategy returns with benchmark returns
             aligned_returns, aligned_bench = returns.align(bench_returns, join='inner')
+
             if len(aligned_returns) > 1:
+                # Perform linear regression to find Alpha and Beta
                 X = sm.add_constant(aligned_bench)
                 model = sm.OLS(aligned_returns, X).fit()
-                metrics['Alpha'] = model.params.iloc[0] * 252
+                # Alpha is the intercept, Beta is the slope
+                metrics['Alpha'] = model.params.iloc[0] * 252 # Annualize Alpha
                 metrics['Beta'] = model.params.iloc[1]
             else:
                 metrics['Alpha'], metrics['Beta'] = np.nan, np.nan
@@ -220,6 +274,9 @@ class Backtester:
         return metrics
 
     def plot_equity_curve(self):
+        """
+        Generates and saves a plot of the portfolio's equity curve over time.
+        """
         if self.equity_curve is None:
             print("No equity curve to plot. Run backtest first.")
             return

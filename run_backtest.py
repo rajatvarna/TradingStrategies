@@ -28,13 +28,13 @@ def run_backtest_for_strategy(strategy_id: int):
         # 2. Instantiate the strategy and backtester from the stored config
         try:
             config = json.loads(strategy_obj.config_json)
-            # The config from the DB doesn't contain the 'parameters' nesting
-            # that the CustomStrategy class expects. We need to wrap it.
-            # This is a slight mismatch between the test script config and what we stored.
-            # Let's assume the stored 'config' IS the full config dictionary including parameters.
 
-            # Let's adjust what we store in the DB instead. The API should store the full config.
-            # For now, let's assume the config is correct.
+            # FIX: The CustomStrategy class expects the rules and parameters
+            # to be nested under a 'parameters' key. If the loaded config
+            # doesn't have this key, we'll wrap it. This ensures
+            # compatibility with configs stored directly from the API.
+            if 'parameters' not in config:
+                config = {'parameters': config}
 
             custom_strategy = CustomStrategy(config=config)
             backtester = Backtester(strategy=custom_strategy, initial_capital=100000)

@@ -110,8 +110,8 @@ class AndBlock(Block):
         return (left_series & right_series).fillna(False)
 
 
-import yfinance as yf
 from quant_strategies.strategy_base import Strategy
+from quant_strategies.data_manager import DataManager
 
 # --- Strategy Execution ---
 
@@ -171,7 +171,13 @@ class CustomStrategy(Strategy):
     def _download_data(self):
         """Downloads historical data for all tickers."""
         print("Downloading data for CustomStrategy...")
-        self.data = yf.download(self.tickers, start=self.start_date, end=self.end_date, group_by='ticker')
+        dm = DataManager()
+        self.data = dm.download_data(
+            self.tickers,
+            start_date=self.start_date,
+            end_date=self.end_date,
+            save=False
+        )
         print("Data download complete.")
 
     def generate_signals(self, data=None) -> dict:
