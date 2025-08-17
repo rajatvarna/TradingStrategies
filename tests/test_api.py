@@ -165,15 +165,26 @@ class APITestCase(unittest.TestCase):
         # Set up the mock to return a dummy result
         mock_run_optimization.return_value = {'param': 10, 'performance': 1.5}
 
-        # Register, log in, and create a strategy
+        # Register a user
         self.client.post('/api/register',
                          data=json.dumps({'username': 'analysis_user', 'email': 'analysis@example.com', 'password': 'password123'}),
                          content_type='application/json')
+
+        # Manually update the user's tier to premium
+        with self.app.app_context():
+            from web_app.models import User
+            user = User.query.filter_by(username='analysis_user').first()
+            user.tier = 'premium'
+            db.session.commit()
+
+        # Log in to get a token
         login_response = self.client.post('/api/login',
                                           data=json.dumps({'username': 'analysis_user', 'password': 'password123'}),
                                           content_type='application/json')
         token = login_response.get_json()['token']
         headers = {'Authorization': f'Bearer {token}'}
+
+        # Create a strategy
         strategy_data = {'name': 'Analysis Strategy', 'config': {'tickers': ['NVDA']}}
         strategy_response = self.client.post('/api/strategies', headers=headers, data=json.dumps(strategy_data), content_type='application/json')
         strategy_id = strategy_response.get_json()['id']

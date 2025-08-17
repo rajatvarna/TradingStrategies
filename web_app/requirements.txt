@@ -6,3 +6,4 @@ bcrypt
 PyJWT
 python-dotenv
 flasgger
+stripe
