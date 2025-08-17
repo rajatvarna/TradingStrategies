@@ -10,9 +10,11 @@ class MockDocument:
 # Since rag.py will be imported by the test, we need to patch the dependencies
 # BEFORE the import happens. This is a common pattern when testing code with
 # heavy dependencies or side effects on import.
-@patch('chatbot_service.rag.FAISS', MagicMock())
-@patch('chatbot_service.rag.HuggingFaceEmbeddings', MagicMock())
-@patch('chatbot_service.rag.Document', MockDocument)
+with patch('langchain.embeddings.HuggingFaceEmbeddings', MagicMock()):
+    with patch('langchain.vectorstores.FAISS', MagicMock()):
+        with patch('langchain.docstore.document.Document', MockDocument):
+            from chatbot_service.rag import RAGSystem
+
 class TestRAGSystem(unittest.TestCase):
     """Unit tests for the RAGSystem class."""
 
@@ -35,7 +37,6 @@ class TestRAGSystem(unittest.TestCase):
         # 3. Instantiate the RAGSystem (this will call _load_documents_from_db)
         # We patch 'os.path.exists' to simulate the DB file being present.
         with patch('os.path.exists', return_value=True):
-            from chatbot_service.rag import RAGSystem, FAISS
             rag_system = RAGSystem()
 
         # 4. Assertions
@@ -48,8 +49,7 @@ class TestRAGSystem(unittest.TestCase):
 
         # Check that FAISS.from_documents was called with the correct Document objects
         # This is a bit complex, but we can check the number of documents.
-        FAISS.from_documents.assert_called_once()
-        args, kwargs = FAISS.from_documents.call_args
+        args, kwargs = rag_system.vector_store.from_documents.call_args
         documents = args[0]
         self.assertEqual(len(documents), 2)
         self.assertEqual(documents[0].page_content, "Strategy Name: Strategy A\nDescription: Description A\nConfiguration: {\"param\": 1}")

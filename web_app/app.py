@@ -1,5 +1,5 @@
 import os
-from flask import Flask
+from flask import Flask, render_template
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 from flasgger import Swagger
@@ -10,7 +10,6 @@ from .routes.strategies import strategies_bp
 from .routes.user import user_bp
 from .routes.portfolios import portfolios_bp
 from .routes.analysis import analysis_bp
-from .routes.payments import payments_bp
 
 def create_app():
     """
@@ -41,7 +40,10 @@ def create_app():
     app.register_blueprint(user_bp)
     app.register_blueprint(portfolios_bp)
     app.register_blueprint(analysis_bp)
-    app.register_blueprint(payments_bp)
+
+    @app.route('/')
+    def index():
+        return render_template('index.html')
 
     return app
 

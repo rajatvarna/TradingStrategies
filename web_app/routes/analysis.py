@@ -30,9 +30,6 @@ def walk_forward_strategy(current_user, strategy_id):
     """
     Runs a walk-forward analysis for a given strategy.
     """
-    if current_user.tier != 'premium':
-        return jsonify({'error': 'This feature is only available to premium users.'}), 403
-
     strategy = Strategy.query.get_or_404(strategy_id)
     if strategy.author != current_user:
         return jsonify({'error': 'You can only analyze your own strategies.'}), 403
@@ -59,9 +56,6 @@ def optimize_strategy(current_user, strategy_id):
     """
     Runs parameter optimization for a given strategy.
     """
-    if current_user.tier != 'premium':
-        return jsonify({'error': 'This feature is only available to premium users.'}), 403
-
     strategy = Strategy.query.get_or_404(strategy_id)
     if strategy.author != current_user:
         return jsonify({'error': 'You can only optimize your own strategies.'}), 403

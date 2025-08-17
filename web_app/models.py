@@ -149,26 +149,3 @@ class BacktestResult(db.Model):
             'beta': self.beta,
             'run_at': self.run_at.isoformat()
         }
-
-class Transaction(db.Model):
-    """
-    Represents a financial transaction, such as a subscription payment or a donation.
-    """
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    transaction_type = db.Column(db.String(32), nullable=False)  # 'subscription' or 'donation'
-    amount = db.Column(db.Float, nullable=False)
-    stripe_charge_id = db.Column(db.String(128), unique=True, nullable=False)
-    timestamp = db.Column(db.DateTime, server_default=db.func.now())
-
-    user = db.relationship('User', backref=db.backref('transactions', lazy='dynamic'))
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'user_id': self.user_id,
-            'transaction_type': self.transaction_type,
-            'amount': self.amount,
-            'stripe_charge_id': self.stripe_charge_id,
-            'timestamp': self.timestamp.isoformat()
-        }
