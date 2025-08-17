@@ -28,6 +28,9 @@ def walk_forward_strategy(current_user, strategy_id):
     """
     Runs a walk-forward analysis for a given strategy.
     """
+    if current_user.tier != 'premium':
+        raise ForbiddenError('This feature is only available to premium users.')
+
     strategy = Strategy.query.get_or_404(strategy_id)
     if strategy.author != current_user:
         raise ForbiddenError('You can only analyze your own strategies.')
@@ -51,6 +54,9 @@ def optimize_strategy(current_user, strategy_id):
     """
     Runs parameter optimization for a given strategy.
     """
+    if current_user.tier != 'premium':
+        raise ForbiddenError('This feature is only available to premium users.')
+
     strategy = Strategy.query.get_or_404(strategy_id)
     if strategy.author != current_user:
         raise ForbiddenError('You can only optimize your own strategies.')

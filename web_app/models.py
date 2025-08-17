@@ -57,6 +57,7 @@ class Strategy(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(128), nullable=False)
     description = db.Column(db.Text, nullable=True)
+    category = db.Column(db.String(64), nullable=True)
     is_public = db.Column(db.Boolean, default=False, nullable=False)
     is_paper_deployed = db.Column(db.Boolean, default=False, nullable=False)
     # The configuration for the CustomStrategy, stored as a JSON string
@@ -148,4 +149,27 @@ class BacktestResult(db.Model):
             'alpha': self.alpha,
             'beta': self.beta,
             'run_at': self.run_at.isoformat()
+        }
+
+class Transaction(db.Model):
+    """
+    Represents a financial transaction, such as a subscription payment or a donation.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    transaction_type = db.Column(db.String(32), nullable=False)  # 'subscription' or 'donation'
+    amount = db.Column(db.Float, nullable=False)
+    stripe_charge_id = db.Column(db.String(128), unique=True, nullable=False)
+    timestamp = db.Column(db.DateTime, server_default=db.func.now())
+
+    user = db.relationship('User', backref=db.backref('transactions', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'transaction_type': self.transaction_type,
+            'amount': self.amount,
+            'stripe_charge_id': self.stripe_charge_id,
+            'timestamp': self.timestamp.isoformat()
         }

@@ -4,7 +4,7 @@ from unittest.mock import patch
 from web_app.app import create_app
 from web_app.extensions import db
 from web_app.models import Strategy
-from .utils import get_auth_token
+from tests.utils import get_auth_token
 
 class APITestCase(unittest.TestCase):
     def setUp(self):
@@ -161,6 +161,11 @@ class APITestCase(unittest.TestCase):
         self.client.post('/api/register',
                          data=json.dumps({'username': 'analysis_user', 'email': 'analysis@example.com', 'password': 'password123'}),
                          content_type='application/json')
+        with self.app.app_context():
+            from web_app.models import User
+            user = User.query.filter_by(username='analysis_user').first()
+            user.tier = 'premium'
+            db.session.commit()
         token = get_auth_token(self.client, 'analysis_user', 'password123')
         headers = {'Authorization': f'Bearer {token}'}
         strategy_data = {'name': 'Analysis Strategy', 'config': {'tickers': ['NVDA']}}
@@ -186,6 +191,54 @@ class APITestCase(unittest.TestCase):
         self.assertIsInstance(called_strategy_obj, Strategy)
         self.assertEqual(called_strategy_obj.id, strategy_id)
         self.assertEqual(called_params, optimize_params)
+
+    def test_filter_and_sort_strategies(self):
+        """Test filtering and sorting public strategies."""
+        # Register and log in to get a token
+        self.client.post('/api/register',
+                         data=json.dumps({'username': 'filter_user', 'email': 'filter@example.com', 'password': 'password123'}),
+                         content_type='application/json')
+        token = get_auth_token(self.client, 'filter_user', 'password123')
+        headers = {'Authorization': f'Bearer {token}'}
+
+        # Create some strategies with different categories and backtest results
+        with self.app.app_context():
+            from web_app.models import User, BacktestResult
+            user = User.query.filter_by(username='filter_user').first()
+            s1 = Strategy(name='S1', category='mean-reversion', is_public=True, config_json='{}', author=user)
+            s2 = Strategy(name='S2', category='trend-following', is_public=True, config_json='{}', author=user)
+            s3 = Strategy(name='S3', category='mean-reversion', is_public=True, config_json='{}', author=user)
+            db.session.add_all([s1, s2, s3])
+            db.session.commit()
+            br1 = BacktestResult(strategy_id=s1.id, cagr=0.1, sharpe_ratio=1.2)
+            br2 = BacktestResult(strategy_id=s2.id, cagr=0.2, sharpe_ratio=1.5)
+            br3 = BacktestResult(strategy_id=s3.id, cagr=0.05, sharpe_ratio=0.8)
+            db.session.add_all([br1, br2, br3])
+            db.session.commit()
+
+        # Test filtering by category
+        response = self.client.get('/api/strategies?category=mean-reversion', headers=headers)
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]['name'], 'S1')
+        self.assertEqual(data[1]['name'], 'S3')
+
+        # Test filtering by min_cagr
+        response = self.client.get('/api/strategies?min_cagr=0.15', headers=headers)
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['name'], 'S2')
+
+        # Test sorting by sharpe_ratio
+        response = self.client.get('/api/strategies?sort_by=sharpe_ratio', headers=headers)
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), 3)
+        self.assertEqual(data[0]['name'], 'S2')
+        self.assertEqual(data[1]['name'], 'S1')
+        self.assertEqual(data[2]['name'], 'S3')
 
 if __name__ == '__main__':
     unittest.main()

@@ -2,7 +2,7 @@ import json
 from flask import Blueprint, request, jsonify, current_app
 from web_app.models import db, Strategy, BacktestResult, User
 from web_app.auth_decorators import token_required
-from web_app.errors import ValidationError
+from web_app.errors import ValidationError, ForbiddenError
 from quant_strategies.strategy_blocks import CustomStrategy
 from datetime import datetime, timedelta
 
@@ -67,6 +67,7 @@ def create_strategy(current_user):
     new_strategy = Strategy(
         name=data['name'],
         description=data.get('description', ''),
+        category=data.get('category'),
         is_public=is_public,
         config_json=json.dumps(config_dict),
         author=current_user
@@ -80,32 +81,79 @@ def create_strategy(current_user):
 @token_required
 def get_public_strategies(current_user):
     """
-    Get a list of all public strategies
+    Get a list of all public strategies with optional filtering and sorting.
     ---
     tags:
       - Strategies
     parameters:
       - in: query
+        name: category
+        type: string
+        required: false
+        description: Filter by strategy category.
+      - in: query
+        name: min_cagr
+        type: number
+        required: false
+        description: Filter by minimum CAGR.
+      - in: query
+        name: max_drawdown
+        type: number
+        required: false
+        description: Filter by maximum drawdown.
+      - in: query
         name: downloadable
         type: boolean
         required: false
         description: Filter for strategies that are downloadable by the current user.
+      - in: query
+        name: sort_by
+        type: string
+        required: false
+        description: The metric to sort by.
+      - in: query
+        name: order
+        type: string
+        required: false
+        description: The sort order ('asc' or 'desc').
     responses:
       200:
-        description: A list of public strategies
-        schema:
-          type: array
-          items:
-            $ref: '#/definitions/Strategy'
+        description: A list of public strategies.
     """
-    downloadable = request.args.get('downloadable', 'false').lower() == 'true'
-
     query = Strategy.query.filter_by(is_public=True)
 
-    if downloadable:
+    # Filtering
+    if 'category' in request.args:
+        query = query.filter(Strategy.category == request.args['category'])
+
+    if 'min_cagr' in request.args or 'max_drawdown' in request.args:
+        query = query.join(BacktestResult)
+        if 'min_cagr' in request.args:
+            query = query.filter(BacktestResult.cagr >= float(request.args['min_cagr']))
+        if 'max_drawdown' in request.args:
+            query = query.filter(BacktestResult.max_drawdown <= float(request.args['max_drawdown']))
+
+    if request.args.get('downloadable', 'false').lower() == 'true':
         if current_user.tier != 'premium':
-            return jsonify([]) # Non-premium users cannot download any strategies
-        # If the user is premium, all public strategies are considered downloadable
+            return jsonify([])
+
+    # Sorting
+    if 'sort_by' in request.args:
+        sort_by = request.args['sort_by']
+        order = request.args.get('order', 'desc').lower()
+
+        # Join with BacktestResult if sorting by a metric
+        if sort_by in ['cagr', 'volatility', 'sharpe_ratio', 'max_drawdown', 'alpha', 'beta']:
+            query = query.join(BacktestResult)
+
+        sort_attr = getattr(BacktestResult, sort_by, None)
+        if sort_attr is None:
+            raise ValidationError(f"Invalid sort_by field: {sort_by}")
+
+        if order == 'asc':
+            query = query.order_by(sort_attr.asc())
+        else:
+            query = query.order_by(sort_attr.desc())
 
     strategies = query.all()
     return jsonify([s.to_dict() for s in strategies])

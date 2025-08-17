@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 from web_app.app import create_app
 from web_app.extensions import db
 from web_app.models import User, Strategy
-from .utils import get_auth_token
+from tests.utils import get_auth_token
 
 class PremiumFeaturesTestCase(unittest.TestCase):
     def setUp(self):
