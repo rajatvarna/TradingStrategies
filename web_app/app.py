@@ -10,6 +10,8 @@ from .routes.strategies import strategies_bp
 from .routes.user import user_bp
 from .routes.portfolios import portfolios_bp
 from .routes.analysis import analysis_bp
+from .routes.payments import payments_bp
+from .errors import register_error_handlers
 
 def create_app():
     """
@@ -20,10 +22,9 @@ def create_app():
     app = Flask(__name__)
 
     # --- Configuration ---
-    basedir = os.path.abspath(os.path.dirname(__file__))
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///' + os.path.join(basedir, 'app.db'))
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-default-fallback-key-for-dev')
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
     app.config['SWAGGER'] = {
         'title': 'Quant Trading Platform API',
         'uiversion': 3
@@ -40,6 +41,10 @@ def create_app():
     app.register_blueprint(user_bp)
     app.register_blueprint(portfolios_bp)
     app.register_blueprint(analysis_bp)
+    app.register_blueprint(payments_bp)
+
+    # --- Error Handler Registration ---
+    register_error_handlers(app)
 
     @app.route('/')
     def index():

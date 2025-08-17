@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from web_app.models import User, db
+from web_app.errors import ValidationError, AuthenticationError
 import bcrypt
 import jwt
 from datetime import datetime, timedelta, timezone
@@ -42,13 +43,13 @@ def register():
     """
     data = request.get_json()
     if not data or not 'username' in data or not 'password' in data or not 'email' in data:
-        return jsonify({'error': 'Missing username, email, or password'}), 400
+        raise ValidationError('Missing username, email, or password')
 
     if User.query.filter_by(username=data['username']).first():
-        return jsonify({'error': 'Username already exists'}), 400
+        raise ValidationError('Username already exists')
 
     if User.query.filter_by(email=data['email']).first():
-        return jsonify({'error': 'Email address already in use'}), 400
+        raise ValidationError('Email address already in use')
 
     user = User(username=data['username'], email=data['email'])
     user.set_password(data['password'])
@@ -96,17 +97,16 @@ def login():
     """
     data = request.get_json()
     if not data or not 'username' in data or not 'password' in data:
-        return jsonify({'error': 'Missing username or password'}), 400
+        raise ValidationError('Missing username or password')
 
     user = User.query.filter_by(username=data['username']).first()
 
-    if user and user.check_password(data['password']):
-        # Create the token
-        token = jwt.encode({
-            'user_id': user.id,
-            'exp': datetime.now(timezone.utc) + timedelta(hours=24)
-        }, current_app.config['SECRET_KEY'], algorithm='HS256')
+    if not user or not user.check_password(data['password']):
+        raise AuthenticationError('Invalid username or password')
 
-        return jsonify({'token': token})
+    token = jwt.encode({
+        'user_id': user.id,
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24)
+    }, current_app.config['SECRET_KEY'], algorithm='HS256')
 
-    return jsonify({'error': 'Invalid username or password'}), 401
+    return jsonify({'token': token})

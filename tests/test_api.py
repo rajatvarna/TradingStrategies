@@ -4,6 +4,7 @@ from unittest.mock import patch
 from web_app.app import create_app
 from web_app.extensions import db
 from web_app.models import Strategy
+from .utils import get_auth_token
 
 class APITestCase(unittest.TestCase):
     def setUp(self):
@@ -65,10 +66,7 @@ class APITestCase(unittest.TestCase):
         self.client.post('/api/register',
                          data=json.dumps({'username': 'testuser', 'email': 'test@example.com', 'password': 'password123'}),
                          content_type='application/json')
-        login_response = self.client.post('/api/login',
-                                          data=json.dumps({'username': 'testuser', 'password': 'password123'}),
-                                          content_type='application/json')
-        token = login_response.get_json()['token']
+        token = get_auth_token(self.client, 'testuser', 'password123')
 
         # Create a strategy
         strategy_data = {
@@ -104,10 +102,7 @@ class APITestCase(unittest.TestCase):
         self.client.post('/api/register',
                          data=json.dumps({'username': 'testuser_keys', 'email': 'keys@example.com', 'password': 'password123'}),
                          content_type='application/json')
-        login_response = self.client.post('/api/login',
-                                          data=json.dumps({'username': 'testuser_keys', 'password': 'password123'}),
-                                          content_type='application/json')
-        token = login_response.get_json()['token']
+        token = get_auth_token(self.client, 'testuser_keys', 'password123')
         headers = {'Authorization': f'Bearer {token}'}
 
         # Create an API key
@@ -131,10 +126,7 @@ class APITestCase(unittest.TestCase):
         self.client.post('/api/register',
                          data=json.dumps({'username': 'portfolio_user', 'email': 'portfolio@example.com', 'password': 'password123'}),
                          content_type='application/json')
-        login_response = self.client.post('/api/login',
-                                          data=json.dumps({'username': 'portfolio_user', 'password': 'password123'}),
-                                          content_type='application/json')
-        token = login_response.get_json()['token']
+        token = get_auth_token(self.client, 'portfolio_user', 'password123')
         headers = {'Authorization': f'Bearer {token}'}
 
         strategy_data = {'name': 'Portfolio Strategy', 'config': {'tickers': ['TSLA']}}
@@ -169,10 +161,7 @@ class APITestCase(unittest.TestCase):
         self.client.post('/api/register',
                          data=json.dumps({'username': 'analysis_user', 'email': 'analysis@example.com', 'password': 'password123'}),
                          content_type='application/json')
-        login_response = self.client.post('/api/login',
-                                          data=json.dumps({'username': 'analysis_user', 'password': 'password123'}),
-                                          content_type='application/json')
-        token = login_response.get_json()['token']
+        token = get_auth_token(self.client, 'analysis_user', 'password123')
         headers = {'Authorization': f'Bearer {token}'}
         strategy_data = {'name': 'Analysis Strategy', 'config': {'tickers': ['NVDA']}}
         strategy_response = self.client.post('/api/strategies', headers=headers, data=json.dumps(strategy_data), content_type='application/json')

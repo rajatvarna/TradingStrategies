@@ -79,5 +79,15 @@ class RAGSystem:
 
         return response_text
 
-# Singleton instance of the RAG system
-rag_system = RAGSystem()
+# --- RAG System Factory ---
+_rag_system_instance = None
+
+def get_rag_system():
+    """
+    Factory function to get a singleton instance of the RAGSystem.
+    This makes it easier to manage the instance and mock it for tests.
+    """
+    global _rag_system_instance
+    if _rag_system_instance is None:
+        _rag_system_instance = RAGSystem()
+    return _rag_system_instance
