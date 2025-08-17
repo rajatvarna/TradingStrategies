@@ -1,7 +1,7 @@
-import yfinance as yf
 import pandas as pd
 import numpy as np
 from quant_strategies.strategy_base import Strategy
+from quant_strategies.data_manager import DataManager
 
 class CryptoMomentumStrategy(Strategy):
     """
@@ -27,7 +27,13 @@ class CryptoMomentumStrategy(Strategy):
     def _download_data(self):
         """Downloads historical data for all tickers in the universe."""
         print("Downloading data...")
-        self.data = yf.download(self.tickers, start=self.start_date, end=self.end_date, group_by='ticker')
+        dm = DataManager()
+        self.data = dm.download_data(
+            self.tickers,
+            start_date=self.start_date,
+            end_date=self.end_date,
+            save=False
+        )
         print("Data download complete.")
 
     def _calculate_signals(self, ticker):

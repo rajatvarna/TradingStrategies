@@ -2,9 +2,9 @@ import json
 import pandas as pd
 import numpy as np
 import copy
-import yfinance as yf
 
 from web_app.models import Strategy
+from quant_strategies.data_manager import DataManager
 from quant_strategies.strategy_blocks import CustomStrategy
 from quant_strategies.backtester import Backtester
 from optimizer import run_optimization
@@ -21,7 +21,13 @@ def run_walk_forward_analysis(strategy_obj: Strategy, optimization_params: dict,
 
     # 1. Download the full dataset for the entire period
     print("Downloading full dataset...")
-    full_data = yf.download(base_config['tickers'], start=base_config['start_date'], end=base_config['end_date'], group_by='ticker')
+    dm = DataManager()
+    full_data = dm.download_data(
+        base_config['tickers'],
+        start_date=base_config['start_date'],
+        end_date=base_config['end_date'],
+        save=False
+    )
 
     # 2. Define walk-forward windows
     all_dates = full_data.index

@@ -18,15 +18,16 @@ class DataManager:
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
 
-    def download_data(self, tickers, start_date, end_date, file_name='market_data.parquet'):
+    def download_data(self, tickers, start_date, end_date, file_name='market_data.parquet', save=True):
         """
-        Downloads historical data for a list of tickers and saves it.
+        Downloads historical data for a list of tickers and optionally saves it.
 
         Args:
             tickers (list): List of ticker symbols.
             start_date (str): Start date in 'YYYY-MM-DD' format.
             end_date (str): End date in 'YYYY-MM-DD' format.
             file_name (str): The name of the file to save the data to.
+            save (bool): Whether to save the downloaded data to a file.
 
         Returns:
             pd.DataFrame: A DataFrame containing the downloaded data.
@@ -35,7 +36,8 @@ class DataManager:
         data = yf.download(tickers, start=start_date, end=end_date, group_by='ticker')
         print("Download complete.")
 
-        self.save_data(data, file_name)
+        if save:
+            self.save_data(data, file_name)
         return data
 
     def save_data(self, data, file_name):
