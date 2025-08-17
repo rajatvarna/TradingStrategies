@@ -3,83 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quant Trading Platform</title>
+    <title>Quant Trading Platform - Build, Test, and Deploy Winning Strategies</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <header>
-        <nav>
-            <div class="logo">Quant Platform</div>
-            <ul>
-                <li><a href="#">Home</a></li>
-                <li><a href="#">Strategies</a></li>
-                <li><a href="#">Pricing</a></li>
-                <li><a href="#">Contact</a></li>
-            </ul>
-        </nav>
+        <div class="container">
+            <nav>
+                <div class="logo">QuantPlatform</div>
+                <ul>
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#">Pricing</a></li>
+                    <li><a href="#">Docs</a></li>
+                    <li><a href="#" class="cta-button-secondary">Sign In</a></li>
+                </ul>
+            </nav>
+        </div>
     </header>
 
     <main>
         <section class="hero">
-            <h1>Advanced Quant Trading Systems</h1>
-            <p>Backtested, ready-to-use strategies designed to reduce drawdowns, improve robustness, and free up your time.</p>
-            <a href="#" class="cta-button">Browse Strategies</a>
+            <div class="container">
+                <h1>Build, Test, and Deploy Winning Trading Strategies</h1>
+                <p>An institutional-grade platform for the modern quantitative trader. Access powerful tools, clean data, and a vibrant community marketplace.</p>
+                <a href="#" class="cta-button">Start Your Free Trial</a>
+            </div>
         </section>
 
-        <section class="features">
-            <div class="feature">
-                <h2>Survivorship Bias Free</h2>
-                <p>Our strategies use premium data, ensuring every backtest includes both delisted and current stocks.</p>
-            </div>
-            <div class="feature">
-                <h2>Backtested with Real Cost</h2>
-                <p>Strategies incorporate broker commissions and slippage to reflect real-world trading conditions.</p>
-            </div>
-            <div class="feature">
-                <h2>Robust Logic, No Curve-Fitting</h2>
-                <p>Built on fundamental market drivers, not overfitted indicator formulas.</p>
+        <section id="features" class="features">
+            <div class="container">
+                <div class="feature">
+                    <h3>Robust Backtesting Engine</h3>
+                    <p>Test your strategies against years of historical data with our fast and accurate event-driven backtester. Account for slippage, commissions, and other real-world costs.</p>
+                </div>
+                <div class="feature">
+                    <h3>Advanced Analytics</h3>
+                    <p>Go beyond basic backtests. Perform parameter optimization, walk-forward analysis, and Monte Carlo simulations to build truly robust systems.</p>
+                </div>
+                <div class="feature">
+                    <h3>Strategy Marketplace</h3>
+                    <p>Discover new ideas and building blocks. Browse and acquire strategies from a community of talented quantitative traders.</p>
+                </div>
             </div>
         </section>
 
         <section class="how-it-works">
-            <h2>How It Works</h2>
-            <div class="steps">
+             <h2 class="section-title">A New Era of Strategy Development</h2>
+            <div class="container steps">
                 <div class="step">
-                    <h3>1. Discover</h3>
-                    <p>Browse our marketplace of community-built and in-house strategies.</p>
+                    <h3>1. Discover & Develop</h3>
+                    <p>Use our powerful API and data libraries to code your unique strategies. Or, find inspiration from our community marketplace.</p>
                 </div>
                 <div class="step">
-                    <h3>2. Backtest</h3>
-                    <p>Run your own backtests and optimizations on our powerful cloud platform.</p>
+                    <h3>2. Rigorous Validation</h3>
+                    <p>Run your strategies through our advanced analytics suite to ensure they are robust and not merely curve-fit to historical data.</p>
                 </div>
                 <div class="step">
-                    <h3>3. Deploy</h3>
-                    <p>Deploy your chosen strategies to a paper trading account or connect to your broker.</p>
+                    <h3>3. Deploy with Confidence</h3>
+                    <p>Paper trade your systems in a live environment. When you're ready, connect to your broker for seamless, automated execution.</p>
                 </div>
             </div>
         </section>
 
         <section class="faq">
-            <h2>Frequently Asked Questions</h2>
-            <div class="faq-item">
-                <h3>What do I get when I subscribe?</h3>
-                <p>You get access to our full suite of backtesting tools, premium strategies, and the ability to deploy your strategies live.</p>
-            </div>
-            <div class="faq-item">
-                <h3>Can I trust the backtests?</h3>
-                <p>Yes, we use high-quality data and account for real-world costs like commissions and slippage.</p>
+            <div class="container">
+                <h2 class="section-title">Frequently Asked Questions</h2>
+                <div class="faq-item">
+                    <h3>What programming languages are supported?</h3>
+                    <p>Our core platform is built on Python, providing you with access to the entire scientific Python ecosystem (Pandas, NumPy, Scikit-learn, etc.).</p>
+                </div>
+                <div class="faq-item">
+                    <h3>Can I use my own data?</h3>
+                    <p>Yes, while we provide clean, institutional-grade data, you are free to upload and integrate your own custom datasets.</p>
+                </div>
+                 <div class="faq-item">
+                    <h3>What are the subscription tiers?</h3>
+                    <p>We offer a free tier for getting started, a premium tier with access to advanced analytics and unlimited private strategies, and a developer tier for API access.</p>
+                </div>
             </div>
         </section>
 
         <section class="cta-section">
-            <h2>Ready to get started?</h2>
-            <p>Sign up today and start building your own quantitative trading strategies.</p>
-            <a href="#" class="cta-button">Sign Up Now</a>
+            <div class="container">
+                <h2 class="section-title">Stop Guessing. Start Quantifying.</h2>
+                <p>Join thousands of traders who have elevated their performance with data-driven strategies.</p>
+                <a href="#" class="cta-button">Sign Up for Free</a>
+            </div>
         </section>
     </main>
 
     <footer>
-        <p>&copy; 2025 Quant Trading Platform. All rights reserved.</p>
+        <div class="container">
+            <p>&copy; 2025 Quant Platform. All rights reserved.</p>
+        </div>
     </footer>
 </body>
 </html>
