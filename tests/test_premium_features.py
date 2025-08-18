@@ -6,15 +6,12 @@ from web_app.extensions import db
 from web_app.models import User, Strategy, Plan
 from tests.utils import get_auth_token
 
+from tests.config import TestingConfig
+
 class PremiumFeaturesTestCase(unittest.TestCase):
     def setUp(self):
         """Set up a test environment."""
-        self.app = create_app()
-        self.app.config.update({
-            "TESTING": True,
-            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
-            "SECRET_KEY": "a-test-secret-key"
-        })
+        self.app = create_app(TestingConfig)
         self.client = self.app.test_client()
 
         with self.app.app_context():

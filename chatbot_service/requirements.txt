@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sqlalchemy
+langchain
+faiss-cpu
+sentence-transformers
+torch
+torchvision
+transformers
+# For CPU-only torch, install with:
+# pip install torch torchvision -f https://download.pytorch.org/whl/cpu

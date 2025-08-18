@@ -1,32 +1,38 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from .rag import get_rag_system
+from .ai_service import get_ai_service
+import json
 
-# Pydantic model for the request body
+# Pydantic models for the request bodies
 class ChatQuery(BaseModel):
     question: str
-    user_id: str | None = None # Optional user ID for context
+    user_id: str | None = None
+
+class StrategyDescription(BaseModel):
+    description: str
+
+class StrategyConfig(BaseModel):
+    config_json: str
 
 # Initialize the FastAPI app
 app = FastAPI(
     title="Quant Strategy AI Assistant",
-    description="An AI-powered chatbot to answer questions about our trading strategies.",
-    version="0.1.0",
+    description="An AI-powered chatbot to answer questions and assist with strategy creation.",
+    version="0.2.0",
 )
 
 @app.on_event("startup")
 async def startup_event():
     """
     This function is called when the application starts.
-    We can use it to ensure the RAG system is loaded.
+    We can use it to ensure the AI service is loaded.
     """
     print("Application startup...")
-    rag_system = get_rag_system()
-    if rag_system.vector_store is None:
-        print("RAG system is not initialized. Check database connection and documents.")
+    ai_service = get_ai_service()
+    if ai_service.vector_store is None:
+        print("RAG system component is not initialized. Check database connection and documents.")
     else:
-        print("RAG system is ready.")
-
+        print("AI Service is ready.")
 
 @app.get("/")
 def read_root():
@@ -36,17 +42,46 @@ def read_root():
 @app.post("/chat")
 def answer_question(query: ChatQuery):
     """
-    The main endpoint for handling user questions.
-    This endpoint triggers the RAG workflow to generate a context-aware answer.
+    The main endpoint for handling user questions (RAG-based).
     """
     print(f"Received query: {query.question}")
-    rag_system = get_rag_system()
-    answer = rag_system.get_answer(query.question)
+    ai_service = get_ai_service()
+    answer = ai_service.get_answer(query.question)
 
     return {
         "question": query.question,
         "answer": answer
     }
+
+@app.post("/generate_strategy_config")
+async def generate_config(description: StrategyDescription):
+    """
+    Takes a natural language description of a trading strategy and returns a
+    structured JSON configuration for it.
+    """
+    print(f"Received description for config generation: {description.description}")
+    ai_service = get_ai_service()
+    config_json = await ai_service.generate_config_from_text(description.description)
+
+    return {"generated_config": config_json}
+
+@app.post("/debug_strategy_config")
+async def debug_config(config: StrategyConfig):
+    """
+    Takes a strategy configuration in JSON format and returns a debug analysis,
+    including suggestions for improvement.
+    """
+    print(f"Received config for debugging: {config.config_json}")
+    ai_service = get_ai_service()
+    # The config might be a string, so parse it to a dict if necessary
+    try:
+        config_dict = json.loads(config.config_json)
+    except json.JSONDecodeError:
+        return {"error": "Invalid JSON format in config_json."}
+
+    analysis = await ai_service.debug_config(config_dict)
+
+    return {"debug_analysis": analysis}
 
 # To run this service locally:
 # uvicorn chatbot_service.main:app --reload

@@ -13,18 +13,21 @@ from .routes.analysis import analysis_bp
 from .routes.payments import payments_bp
 from .errors import register_error_handlers
 
-def create_app():
+def create_app(config_object=None):
     """
     Application factory function.
     """
-    load_dotenv() # Load environment variables from .env file
-
     app = Flask(__name__)
 
-    # --- Configuration ---
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+    if config_object:
+        app.config.from_object(config_object)
+    else:
+        # Load from .env file for development
+        load_dotenv()
+        app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI', 'sqlite:///app.db')
+        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+        app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-default-secret-key')
+
     app.config['SWAGGER'] = {
         'title': 'Quant Trading Platform API',
         'uiversion': 3
