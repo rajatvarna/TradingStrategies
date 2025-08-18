@@ -62,11 +62,13 @@ class TestBacktester(unittest.TestCase):
 
         aapl_signal_df = self.mock_signals['AAPL'].copy()
         aapl_signal_df['Close'] = self.mock_data['AAPL_Close']
+        aapl_signal_df['PositionScore'] = 1.0 # Add required column
 
         goog_signal_df = self.mock_signals['GOOG'].copy()
         goog_signal_df['Close'] = self.mock_data['GOOG_Close']
+        goog_signal_df['PositionScore'] = 1.0 # Add required column
 
-        # The strategy should return a dict of dataframes, each with a 'Signal' and 'Close' column
+        # The strategy should return a dict of dataframes, each with a 'Signal', 'Close', and 'PositionScore' column
         self.strategy.generate_signals = lambda data=None: {'AAPL': aapl_signal_df, 'GOOG': goog_signal_df}
 
         equity_curve, trade_log = backtester.run()
@@ -114,7 +116,7 @@ class TestBacktester(unittest.TestCase):
 
         # Volatility and Sharpe should be calculated, but their exact value is less intuitive.
         # We can assert they are not zero.
-        self.assertNotEqual(stats['Volatility (%)'], 0)
+        self.assertNotEqual(stats['Annual Volatility (%)'], 0)
         self.assertNotEqual(stats['Sharpe Ratio'], 0)
 
 
