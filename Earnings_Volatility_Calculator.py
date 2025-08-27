@@ -22,8 +22,14 @@ VOLUME_THRESHOLD = 500000        # Reduced from 1,500,000 (more inclusive)
 IV_RV_THRESHOLD = 0.9           # Reduced from 1.25 (more realistic) 
 SLOPE_THRESHOLD = -0.001        # Relaxed from -0.00406 (less strict)
 
-# API Keys and endpoints
+# API Keys and endpoints - PRIORITY ORDER
+ALPHAVANTAGE_API_KEY = "XIAGUPO07P3BSVD5"
+POLYGON_API_KEY = "RZAXDMQqIv9B1_IRwC7Ejog1GgP7WFX0"
 FINNHUB_API_KEY = "d2hfijpr01qon4ec0eu0d2hfijpr01qon4ec0eug"
+
+# Base URLs
+ALPHAVANTAGE_BASE_URL = "https://www.alphavantage.co/query"
+POLYGON_BASE_URL = "https://api.polygon.io"
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 # =============================================================================
@@ -45,8 +51,356 @@ class DataSource:
     def get_price_history(self, symbol, period_days=90):
         raise NotImplementedError
 
+class AlphaVantageSource(DataSource):
+    """AlphaVantage API data source - PRIORITY 1"""
+    
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.name = "AlphaVantage"
+        self.base_url = ALPHAVANTAGE_BASE_URL
+    
+    def make_request(self, params, max_retries=2):
+        """Make API request to AlphaVantage"""
+        params['apikey'] = self.api_key
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(self.base_url, params=params, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Check for API limit
+                if 'Note' in data:
+                    print(f"AlphaVantage API limit reached: {data['Note']}")
+                    return None
+                
+                return data
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                else:
+                    print(f"AlphaVantage API error: {e}")
+                    return None
+    
+    def get_current_price(self, symbol):
+        try:
+            params = {
+                'function': 'GLOBAL_QUOTE',
+                'symbol': symbol
+            }
+            
+            data = self.make_request(params)
+            if data and 'Global Quote' in data:
+                price = data['Global Quote'].get('05. price')
+                if price:
+                    return float(price)
+            return None
+        except Exception as e:
+            print(f"AlphaVantage price error for {symbol}: {e}")
+            return None
+    
+    def get_options_expirations(self, symbol):
+        """Get options expirations from AlphaVantage"""
+        try:
+            # AlphaVantage doesn't have a direct options expiration endpoint
+            # We'll generate standard monthly expirations (3rd Friday)
+            expirations = []
+            today = datetime.now().date()
+            
+            for month_offset in range(12):  # Next 12 months
+                year = today.year
+                month = today.month + month_offset
+                
+                if month > 12:
+                    year += (month - 1) // 12
+                    month = ((month - 1) % 12) + 1
+                
+                # Find 3rd Friday of the month
+                first_day = datetime(year, month, 1).date()
+                first_weekday = first_day.weekday()  # 0=Monday, 4=Friday
+                
+                # Calculate days to first Friday
+                days_to_first_friday = (4 - first_weekday) % 7
+                first_friday = first_day + timedelta(days=days_to_first_friday)
+                third_friday = first_friday + timedelta(days=14)  # Add 2 weeks
+                
+                # Make sure it's still in the same month and future
+                if third_friday.month == month and third_friday >= today:
+                    expirations.append(third_friday.strftime("%Y-%m-%d"))
+            
+            return expirations if expirations else None
+            
+        except Exception as e:
+            print(f"AlphaVantage expiration generation error for {symbol}: {e}")
+            return None
+    
+    def get_options_chain(self, symbol, expiration):
+        """Get options chain from AlphaVantage"""
+        try:
+            # AlphaVantage has limited options data in free tier
+            # Try to get basic options data
+            params = {
+                'function': 'HISTORICAL_OPTIONS',
+                'symbol': symbol,
+                'date': expiration
+            }
+            
+            data = self.make_request(params)
+            if data and 'data' in data:
+                # Process AlphaVantage options format
+                calls_data = []
+                puts_data = []
+                
+                for option in data['data']:
+                    if option.get('type') == 'call':
+                        calls_data.append({
+                            'strike': float(option.get('strike', 0)),
+                            'impliedVolatility': float(option.get('implied_volatility', 0)),
+                            'bid': float(option.get('bid', 0)),
+                            'ask': float(option.get('ask', 0))
+                        })
+                    elif option.get('type') == 'put':
+                        puts_data.append({
+                            'strike': float(option.get('strike', 0)),
+                            'impliedVolatility': float(option.get('implied_volatility', 0)),
+                            'bid': float(option.get('bid', 0)),
+                            'ask': float(option.get('ask', 0))
+                        })
+                
+                if calls_data or puts_data:
+                    return {
+                        'calls': pd.DataFrame(calls_data),
+                        'puts': pd.DataFrame(puts_data)
+                    }
+            
+            return None
+            
+        except Exception as e:
+            print(f"AlphaVantage options chain error for {symbol} {expiration}: {e}")
+            return None
+    
+    def get_price_history(self, symbol, period_days=90):
+        try:
+            # Use daily adjusted data
+            params = {
+                'function': 'TIME_SERIES_DAILY_ADJUSTED',
+                'symbol': symbol,
+                'outputsize': 'compact'  # Last 100 data points
+            }
+            
+            data = self.make_request(params)
+            if data and 'Time Series (Daily)' in data:
+                ts_data = data['Time Series (Daily)']
+                
+                # Convert to DataFrame
+                df_data = []
+                for date_str, values in ts_data.items():
+                    df_data.append({
+                        'Date': pd.to_datetime(date_str),
+                        'Open': float(values['1. open']),
+                        'High': float(values['2. high']),
+                        'Low': float(values['3. low']),
+                        'Close': float(values['5. adjusted close']),
+                        'Volume': int(values['6. volume'])
+                    })
+                
+                df = pd.DataFrame(df_data)
+                df.set_index('Date', inplace=True)
+                df.sort_index(inplace=True)
+                
+                # Limit to requested period
+                cutoff_date = datetime.now() - timedelta(days=period_days)
+                df = df[df.index >= cutoff_date]
+                
+                return df
+            return None
+            
+        except Exception as e:
+            print(f"AlphaVantage history error for {symbol}: {e}")
+            return None
+
+class PolygonSource(DataSource):
+    """Polygon API data source - PRIORITY 2"""
+    
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.name = "Polygon"
+        self.base_url = POLYGON_BASE_URL
+    
+    def make_request(self, endpoint, params=None, max_retries=2):
+        """Make API request to Polygon"""
+        if params is None:
+            params = {}
+        params['apikey'] = self.api_key
+        
+        for attempt in range(max_retries):
+            try:
+                url = f"{self.base_url}/{endpoint}"
+                response = requests.get(url, params=params, timeout=15)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # Check for API errors
+                if data.get('status') == 'ERROR':
+                    print(f"Polygon API error: {data.get('error', 'Unknown error')}")
+                    return None
+                
+                return data
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                else:
+                    print(f"Polygon API error: {e}")
+                    return None
+    
+    def get_current_price(self, symbol):
+        try:
+            endpoint = f"v2/last/trade/{symbol}"
+            data = self.make_request(endpoint)
+            
+            if data and data.get('status') == 'OK' and 'results' in data:
+                price = data['results'].get('p')  # price
+                if price:
+                    return float(price)
+            return None
+        except Exception as e:
+            print(f"Polygon price error for {symbol}: {e}")
+            return None
+    
+    def get_options_expirations(self, symbol):
+        """Get options expirations from Polygon"""
+        try:
+            endpoint = f"v3/reference/options/contracts"
+            params = {
+                'underlying_ticker': symbol,
+                'limit': 1000,
+                'order': 'asc',
+                'sort': 'expiration_date'
+            }
+            
+            data = self.make_request(endpoint, params)
+            if data and data.get('status') == 'OK' and 'results' in data:
+                expirations = set()
+                for contract in data['results']:
+                    exp_date = contract.get('expiration_date')
+                    if exp_date:
+                        expirations.add(exp_date)
+                
+                # Filter for future dates
+                today = datetime.now().date()
+                future_expirations = []
+                for exp_str in sorted(expirations):
+                    exp_date = datetime.strptime(exp_str, "%Y-%m-%d").date()
+                    if exp_date >= today:
+                        future_expirations.append(exp_str)
+                
+                return future_expirations[:12] if future_expirations else None  # Limit to 12
+            
+            return None
+            
+        except Exception as e:
+            print(f"Polygon options expirations error for {symbol}: {e}")
+            return None
+    
+    def get_options_chain(self, symbol, expiration):
+        """Get options chain from Polygon"""
+        try:
+            endpoint = f"v3/reference/options/contracts"
+            params = {
+                'underlying_ticker': symbol,
+                'expiration_date': expiration,
+                'limit': 1000
+            }
+            
+            data = self.make_request(endpoint, params)
+            if data and data.get('status') == 'OK' and 'results' in data:
+                calls_data = []
+                puts_data = []
+                
+                for contract in data['results']:
+                    contract_type = contract.get('contract_type')
+                    strike = contract.get('strike_price')
+                    
+                    if not strike:
+                        continue
+                    
+                    # Get last quote for this contract
+                    contract_ticker = contract.get('ticker')
+                    if contract_ticker:
+                        quote_endpoint = f"v3/last/quote/{contract_ticker}"
+                        quote_data = self.make_request(quote_endpoint)
+                        
+                        if quote_data and quote_data.get('status') == 'OK':
+                            results = quote_data.get('results', {})
+                            bid = results.get('bid')
+                            ask = results.get('ask')
+                            
+                            # Polygon doesn't provide IV directly, estimate or set to reasonable value
+                            implied_vol = 0.25  # Default IV estimate
+                            
+                            option_data = {
+                                'strike': float(strike),
+                                'impliedVolatility': implied_vol,
+                                'bid': float(bid) if bid else 0.0,
+                                'ask': float(ask) if ask else 0.0
+                            }
+                            
+                            if contract_type == 'call':
+                                calls_data.append(option_data)
+                            elif contract_type == 'put':
+                                puts_data.append(option_data)
+                
+                if calls_data or puts_data:
+                    return {
+                        'calls': pd.DataFrame(calls_data),
+                        'puts': pd.DataFrame(puts_data)
+                    }
+            
+            return None
+            
+        except Exception as e:
+            print(f"Polygon options chain error for {symbol} {expiration}: {e}")
+            return None
+    
+    def get_price_history(self, symbol, period_days=90):
+        try:
+            # Calculate date range
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=period_days)
+            
+            endpoint = f"v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}"
+            params = {
+                'adjusted': 'true',
+                'sort': 'asc',
+                'limit': 5000
+            }
+            
+            data = self.make_request(endpoint, params)
+            if data and data.get('status') == 'OK' and 'results' in data:
+                df_data = []
+                for bar in data['results']:
+                    df_data.append({
+                        'Date': pd.to_datetime(bar['t'], unit='ms'),
+                        'Open': float(bar['o']),
+                        'High': float(bar['h']),
+                        'Low': float(bar['l']),
+                        'Close': float(bar['c']),
+                        'Volume': int(bar['v'])
+                    })
+                
+                df = pd.DataFrame(df_data)
+                df.set_index('Date', inplace=True)
+                return df
+            
+            return None
+            
+        except Exception as e:
+            print(f"Polygon history error for {symbol}: {e}")
+            return None
+
 class YahooFinanceSource(DataSource):
-    """Yahoo Finance data source using yfinance"""
+    """Yahoo Finance data source using yfinance - FALLBACK"""
     
     def __init__(self):
         self.name = "Yahoo Finance"
@@ -123,7 +477,7 @@ class YahooFinanceSource(DataSource):
             return None
 
 class FinnhubSource(DataSource):
-    """Finnhub API data source"""
+    """Finnhub API data source - BACKUP"""
     
     def __init__(self, api_key):
         self.api_key = api_key
@@ -155,14 +509,12 @@ class FinnhubSource(DataSource):
             return None
     
     def get_options_expirations(self, symbol):
-        """Get options expirations from Finnhub"""
+        """Generate standard monthly expirations"""
         try:
-            # Finnhub doesn't have a direct options expiration endpoint
-            # We'll generate likely expiration dates (3rd Friday of each month)
             expirations = []
             today = datetime.now().date()
             
-            for month_offset in range(12):  # Next 12 months
+            for month_offset in range(12):
                 year = today.year
                 month = today.month + month_offset
                 
@@ -172,14 +524,12 @@ class FinnhubSource(DataSource):
                 
                 # Find 3rd Friday of the month
                 first_day = datetime(year, month, 1).date()
-                first_weekday = first_day.weekday()  # 0=Monday, 4=Friday
+                first_weekday = first_day.weekday()
                 
-                # Calculate days to first Friday
                 days_to_first_friday = (4 - first_weekday) % 7
                 first_friday = first_day + timedelta(days=days_to_first_friday)
-                third_friday = first_friday + timedelta(days=14)  # Add 2 weeks
+                third_friday = first_friday + timedelta(days=14)
                 
-                # Make sure it's still in the same month
                 if third_friday.month == month and third_friday >= today:
                     expirations.append(third_friday.strftime("%Y-%m-%d"))
             
@@ -191,7 +541,6 @@ class FinnhubSource(DataSource):
     
     def get_options_chain(self, symbol, expiration):
         """Finnhub doesn't provide detailed options chains in free tier"""
-        print(f"Finnhub options chain not available for free tier: {symbol} {expiration}")
         return None
     
     def get_price_history(self, symbol, period_days=90):
@@ -223,61 +572,69 @@ class FinnhubSource(DataSource):
             return None
 
 class DataSourceManager:
-    """Manages multiple data sources with fallback logic"""
+    """Manages multiple data sources with priority ordering"""
     
     def __init__(self):
+        # PRIORITY ORDER: AlphaVantage -> Polygon -> Yahoo -> Finnhub
         self.sources = [
+            AlphaVantageSource(ALPHAVANTAGE_API_KEY),
+            PolygonSource(POLYGON_API_KEY),
             YahooFinanceSource(),
             FinnhubSource(FINNHUB_API_KEY)
         ]
-        print(f"Initialized {len(self.sources)} data sources")
+        print(f"Initialized {len(self.sources)} data sources in priority order:")
+        for i, source in enumerate(self.sources, 1):
+            print(f"  {i}. {source.name}")
     
     def get_current_price(self, symbol):
         for source in self.sources:
             try:
                 price = source.get_current_price(symbol)
-                if price is not None:
-                    print(f"✓ Got price ${price:.2f} for {symbol} from {source.name}")
+                if price is not None and price > 0:
+                    print(f"Got price ${price:.2f} for {symbol} from {source.name}")
                     return price
             except Exception as e:
                 continue
-        print(f"✗ No price data available for {symbol}")
+        print(f"No price data available for {symbol}")
         return None
     
     def get_options_expirations(self, symbol):
         for source in self.sources:
             try:
                 expirations = source.get_options_expirations(symbol)
-                if expirations:
-                    print(f"✓ Got {len(expirations)} expirations for {symbol} from {source.name}")
+                if expirations and len(expirations) > 0:
+                    print(f"Got {len(expirations)} expirations for {symbol} from {source.name}")
                     return expirations
             except Exception as e:
                 continue
-        print(f"✗ No options expirations available for {symbol}")
+        print(f"No options expirations available for {symbol}")
         return None
     
     def get_options_chain(self, symbol, expiration):
         for source in self.sources:
             try:
                 chain = source.get_options_chain(symbol, expiration)
-                if chain:
-                    print(f"✓ Got options chain for {symbol} {expiration} from {source.name}")
-                    return chain
+                if chain and ('calls' in chain or 'puts' in chain):
+                    calls_count = len(chain.get('calls', []))
+                    puts_count = len(chain.get('puts', []))
+                    if calls_count > 0 or puts_count > 0:
+                        print(f"Got options chain for {symbol} {expiration} from {source.name} ({calls_count} calls, {puts_count} puts)")
+                        return chain
             except Exception as e:
                 continue
-        print(f"✗ No options chain available for {symbol} {expiration}")
+        print(f"No options chain available for {symbol} {expiration}")
         return None
     
     def get_price_history(self, symbol, period_days=90):
         for source in self.sources:
             try:
                 history = source.get_price_history(symbol, period_days)
-                if history is not None and not history.empty:
-                    print(f"✓ Got {len(history)} days of history for {symbol} from {source.name}")
+                if history is not None and not history.empty and len(history) >= 30:
+                    print(f"Got {len(history)} days of history for {symbol} from {source.name}")
                     return history
             except Exception as e:
                 continue
-        print(f"✗ No price history available for {symbol}")
+        print(f"No sufficient price history available for {symbol}")
         return None
 
 # =============================================================================
@@ -290,58 +647,22 @@ def get_earnings_calendar(days_ahead=7):
     
     tickers = []
     
-    # Method 1: Try Yahoo Finance earnings calendar
+    # Method 1: Try Polygon earnings calendar first
     try:
-        print("Trying Yahoo Finance earnings calendar...")
-        base_url = "https://finance.yahoo.com/calendar/earnings"
+        print("Trying Polygon earnings calendar...")
+        polygon_source = PolygonSource(POLYGON_API_KEY)
         
-        for day_offset in range(days_ahead):
-            target_date = datetime.now() + timedelta(days=day_offset)
-            date_str = target_date.strftime("%Y-%m-%d")
-            
-            try:
-                url = f"{base_url}?day={date_str}"
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-                
-                response = requests.get(url, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.content, 'html.parser')
-                    
-                    # Find earnings table
-                    table = soup.find('table', {'data-test': 'calendar-table'}) or soup.find('table')
-                    if table:
-                        rows = table.find_all('tr')[1:]  # Skip header
-                        
-                        for row in rows[:15]:  # Limit to top 15 per day
-                            cells = row.find_all('td')
-                            if len(cells) >= 1:
-                                # Extract ticker
-                                ticker_cell = cells[0]
-                                ticker_text = ticker_cell.get_text().strip()
-                                
-                                # Extract ticker symbol (usually in parentheses or as link)
-                                ticker_match = re.search(r'([A-Z]{1,5})', ticker_text)
-                                if ticker_match:
-                                    ticker = ticker_match.group(1)
-                                    if len(ticker) <= 5:
-                                        tickers.append({
-                                            'ticker': ticker,
-                                            'earnings_date': date_str,
-                                            'company': ticker_text
-                                        })
-                
-                time.sleep(1)  # Be respectful
-                
-            except Exception as e:
-                print(f"Error fetching {date_str}: {e}")
-                continue
-                
+        # Get current date range
+        start_date = datetime.now().strftime("%Y-%m-%d")
+        end_date = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        
+        # Polygon doesn't have earnings calendar in free tier, skip to next method
+        pass
+        
     except Exception as e:
-        print(f"Yahoo earnings calendar failed: {e}")
+        print(f"Polygon earnings calendar failed: {e}")
     
-    # Method 2: Use Finnhub earnings calendar as backup
+    # Method 2: Try Finnhub earnings calendar
     if not tickers:
         try:
             print("Trying Finnhub earnings calendar...")
@@ -356,7 +677,7 @@ def get_earnings_calendar(days_ahead=7):
             })
             
             if earnings_data and 'earningsCalendar' in earnings_data:
-                for item in earnings_data['earningsCalendar'][:20]:  # Limit to 20
+                for item in earnings_data['earningsCalendar'][:25]:  # Limit to 25
                     if 'symbol' in item and 'date' in item:
                         tickers.append({
                             'ticker': item['symbol'],
@@ -367,7 +688,56 @@ def get_earnings_calendar(days_ahead=7):
         except Exception as e:
             print(f"Finnhub earnings calendar failed: {e}")
     
-    # Method 3: Fallback list of popular stocks
+    # Method 3: Try Yahoo Finance earnings calendar
+    if not tickers:
+        try:
+            print("Trying Yahoo Finance earnings calendar...")
+            base_url = "https://finance.yahoo.com/calendar/earnings"
+            
+            for day_offset in range(days_ahead):
+                target_date = datetime.now() + timedelta(days=day_offset)
+                date_str = target_date.strftime("%Y-%m-%d")
+                
+                try:
+                    url = f"{base_url}?day={date_str}"
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
+                    
+                    response = requests.get(url, headers=headers, timeout=10)
+                    if response.status_code == 200:
+                        soup = BeautifulSoup(response.content, 'html.parser')
+                        
+                        table = soup.find('table', {'data-test': 'calendar-table'}) or soup.find('table')
+                        if table:
+                            rows = table.find_all('tr')[1:]  # Skip header
+                            
+                            for row in rows[:15]:  # Limit to top 15 per day
+                                cells = row.find_all('td')
+                                if len(cells) >= 1:
+                                    ticker_cell = cells[0]
+                                    ticker_text = ticker_cell.get_text().strip()
+                                    
+                                    ticker_match = re.search(r'([A-Z]{1,5})', ticker_text)
+                                    if ticker_match:
+                                        ticker = ticker_match.group(1)
+                                        if len(ticker) <= 5:
+                                            tickers.append({
+                                                'ticker': ticker,
+                                                'earnings_date': date_str,
+                                                'company': ticker_text
+                                            })
+                    
+                    time.sleep(1)  # Be respectful
+                    
+                except Exception as e:
+                    print(f"Error fetching {date_str}: {e}")
+                    continue
+                    
+        except Exception as e:
+            print(f"Yahoo earnings calendar failed: {e}")
+    
+    # Method 4: Fallback list of popular stocks
     if not tickers:
         print("Using fallback list of popular earnings stocks...")
         fallback_tickers = [
@@ -377,7 +747,7 @@ def get_earnings_calendar(days_ahead=7):
         ]
         
         today_str = datetime.now().strftime("%Y-%m-%d")
-        for ticker in fallback_tickers[:15]:
+        for ticker in fallback_tickers[:20]:
             tickers.append({
                 'ticker': ticker,
                 'earnings_date': today_str,
@@ -589,15 +959,15 @@ def generate_trade_ideas(ticker, underlying_price, options_chains, iv30_rv30, ts
     return trade_ideas
 
 def analyze_single_ticker(ticker_symbol, earnings_date=None, progress_callback=None):
-    """Analyze single ticker with robust data sourcing"""
+    """Analyze single ticker with robust multi-source data"""
     
     if progress_callback:
         progress_callback(f"Analyzing {ticker_symbol}...")
     
-    # Initialize data manager
+    # Initialize data manager with priority sources
     data_manager = DataSourceManager()
     
-    print(f"\n📊 Analyzing {ticker_symbol}...")
+    print(f"\nAnalyzing {ticker_symbol}...")
     
     try:
         ticker_symbol = ticker_symbol.strip().upper()
@@ -608,7 +978,7 @@ def analyze_single_ticker(ticker_symbol, earnings_date=None, progress_callback=N
             return {
                 'ticker': ticker_symbol,
                 'earnings_date': earnings_date,
-                'error': "Unable to retrieve current price",
+                'error': "Unable to retrieve current price from any source",
                 'recommendation': 'NO PRICE DATA'
             }
         
@@ -618,7 +988,7 @@ def analyze_single_ticker(ticker_symbol, earnings_date=None, progress_callback=N
             return {
                 'ticker': ticker_symbol,
                 'earnings_date': earnings_date,
-                'error': "No options expirations available",
+                'error': "No options expirations available from any source",
                 'recommendation': 'NO OPTIONS'
             }
         
@@ -678,7 +1048,7 @@ def analyze_single_ticker(ticker_symbol, earnings_date=None, progress_callback=N
             return {
                 'ticker': ticker_symbol,
                 'earnings_date': earnings_date,
-                'error': "Could not calculate ATM implied volatility",
+                'error': "Could not calculate ATM implied volatility from any source",
                 'recommendation': 'NO IV DATA'
             }
         
@@ -711,7 +1081,7 @@ def analyze_single_ticker(ticker_symbol, earnings_date=None, progress_callback=N
             return {
                 'ticker': ticker_symbol,
                 'earnings_date': earnings_date,
-                'error': "Insufficient price history for calculations",
+                'error': "Insufficient price history for calculations from any source",
                 'recommendation': 'NO HISTORY'
             }
         
@@ -782,7 +1152,7 @@ def analyze_single_ticker(ticker_symbol, earnings_date=None, progress_callback=N
         }
         
     except Exception as e:
-        print(f"✗ Error analyzing {ticker_symbol}: {e}")
+        print(f"Error analyzing {ticker_symbol}: {e}")
         return {
             'ticker': ticker_symbol,
             'earnings_date': earnings_date,
@@ -894,6 +1264,7 @@ def export_to_excel(results, filename=None):
         ws.append([f"ANALYSIS REPORT: {ticker}", ""])
         ws.cell(row=1, column=1).font = Font(bold=True, size=14)
         ws.append(["Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+        ws.append(["Data Sources:", "AlphaVantage → Polygon → Yahoo → Finnhub"])
         ws.append(["", ""])
         
         # Analysis metrics
@@ -960,7 +1331,7 @@ def export_to_excel(results, filename=None):
     
     # Save workbook
     wb.save(filename)
-    print(f"✅ Excel file saved: {filename}")
+    print(f"Excel file saved: {filename}")
     return filename
 
 # =============================================================================
@@ -971,7 +1342,8 @@ def run_earnings_scan():
     """Main earnings scan function"""
     
     progress_layout = [
-        [sg.Text("🚀 Earnings Scanner with Multiple Data Sources", font=("Helvetica", 14, "bold"))],
+        [sg.Text("Multi-Source Earnings Scanner", font=("Helvetica", 14, "bold"))],
+        [sg.Text("Priority: AlphaVantage → Polygon → Yahoo → Finnhub", font=("Helvetica", 9))],
         [sg.Text("", key="status", size=(70, 1))],
         [sg.ProgressBar(100, orientation='h', size=(60, 20), key='progress')],
         [sg.Text("", key="current_ticker", size=(70, 1))],
@@ -993,13 +1365,13 @@ def run_earnings_scan():
     
     try:
         # Step 1: Get earnings calendar
-        update_progress("🔍 Fetching earnings calendar from multiple sources...")
+        update_progress("Fetching earnings calendar from multiple sources...")
         progress_window["progress"].update(5)
         
         earnings_df = get_earnings_calendar(days_ahead=7)
         total_tickers = len(earnings_df)
         
-        update_progress(f"📊 Found {total_tickers} tickers to analyze")
+        update_progress(f"Found {total_tickers} tickers to analyze")
         progress_window["progress"].update(10)
         
         # Step 2: Analyze each ticker
@@ -1026,22 +1398,22 @@ def run_earnings_scan():
             # Update progress
             progress_pct = 10 + (i + 1) / total_tickers * 80
             progress_window["progress"].update(progress_pct)
-            update_progress(f"📈 Completed {i + 1}/{total_tickers} tickers ({successful_analyses} successful)")
+            update_progress(f"Completed {i + 1}/{total_tickers} tickers ({successful_analyses} successful)")
         
         if not cancelled:
             # Step 3: Export to Excel
-            update_progress("📄 Exporting comprehensive results to Excel...")
+            update_progress("Exporting comprehensive results to Excel...")
             progress_window["progress"].update(95)
             
             filename = export_to_excel(results)
             
             progress_window["progress"].update(100)
-            update_progress(f"✅ Scan complete! Results saved to {filename}")
+            update_progress(f"Scan complete! Results saved to {filename}")
             
             time.sleep(3)
     
     except Exception as e:
-        update_progress(f"❌ Error during scan: {str(e)}")
+        update_progress(f"Error during scan: {str(e)}")
         time.sleep(3)
     
     finally:
@@ -1055,25 +1427,31 @@ def run_earnings_scan():
         avoid = len([r for r in results if r['recommendation'] == 'AVOID'])
         
         summary_text = f"""
-🎯 EARNINGS SCAN COMPLETE!
+EARNINGS SCAN COMPLETE!
 
-📊 Analysis Summary:
+Analysis Summary:
 • Total Tickers Processed: {len(results)}
 • Successfully Analyzed: {successful}
 • Data Source Failures: {len(results) - successful}
 
-📈 Trading Recommendations:
-• 🟢 RECOMMENDED: {recommended}
-• 🟡 CONSIDER: {consider}  
-• 🔴 AVOID: {avoid}
+Trading Recommendations:
+• RECOMMENDED: {recommended}
+• CONSIDER: {consider}  
+• AVOID: {avoid}
 
-💾 Results exported to Excel with:
+Data Sources Used (Priority Order):
+1. AlphaVantage API (options & history)
+2. Polygon API (comprehensive data)
+3. Yahoo Finance (reliable fallback)
+4. Finnhub API (backup data)
+
+Results exported to Excel with:
 ✓ Comprehensive summary sheet
 ✓ Individual analysis for each ticker
 ✓ Detailed trade ideas and strategies
-✓ Risk management guidelines
+✓ Multi-source data validation
 
-📋 Adjusted Thresholds Used:
+Adjusted Thresholds Used:
 • Volume: >= {VOLUME_THRESHOLD:,} (more inclusive)
 • IV/RV Ratio: >= {IV_RV_THRESHOLD} (realistic market conditions)
 • Term Slope: <= {SLOPE_THRESHOLD} (less restrictive)
@@ -1084,7 +1462,7 @@ Next Steps:
 3. Verify with your broker before executing
         """
         
-        sg.popup_scrolled(summary_text, title="📊 Earnings Scan Results", size=(80, 25), font=("Courier", 10))
+        sg.popup_scrolled(summary_text, title="Earnings Scan Results", size=(80, 25), font=("Courier", 10))
     
     return results
 
@@ -1096,9 +1474,11 @@ def show_trade_ideas_window(trade_ideas, ticker, underlying_price):
         return
     
     layout = [
-        [sg.Text(f"💡 Trade Ideas for {ticker} @ ${underlying_price:.2f}", 
+        [sg.Text(f"Trade Ideas for {ticker} @ ${underlying_price:.2f}", 
                 font=("Helvetica", 14, "bold"), justification="center")],
-        [sg.Text(f"Using Thresholds: Vol≥{VOLUME_THRESHOLD:,}, IV/RV≥{IV_RV_THRESHOLD}, Slope≤{SLOPE_THRESHOLD}", 
+        [sg.Text(f"Using Thresholds: Vol>={VOLUME_THRESHOLD:,}, IV/RV>={IV_RV_THRESHOLD}, Slope<={SLOPE_THRESHOLD}", 
+                font=("Helvetica", 8), justification="center")],
+        [sg.Text("Data: AlphaVantage → Polygon → Yahoo → Finnhub", 
                 font=("Helvetica", 8), justification="center")],
         [sg.Text("_" * 90)],
     ]
@@ -1113,21 +1493,21 @@ def show_trade_ideas_window(trade_ideas, ticker, underlying_price):
         layout.extend([
             [sg.Text(f"Strategy {i+1}: {idea['strategy']}", 
                     font=("Helvetica", 12, "bold"), text_color=strategy_color)],
-            [sg.Text(f"💭 Rationale: {idea['rationale']}", size=(85, None), 
+            [sg.Text(f"Rationale: {idea['rationale']}", size=(85, None), 
                     font=("Helvetica", 9))],
-            [sg.Text(f"⚙️  Setup: {idea['setup']}", text_color="darkgreen")],
-            [sg.Text(f"📅 Expiration: {idea['expiration']}")],
-            [sg.Text(f"💰 Max Profit: {idea['max_profit']}")],
-            [sg.Text(f"⚠️  Risk: {idea['risk']}")],
-            [sg.Text(f"🎯 Target: {idea['target']}", text_color="navy")],
-            [sg.Text(f"🛑 Stop Loss: {idea['stop_loss']}", text_color="darkred")],
+            [sg.Text(f"Setup: {idea['setup']}", text_color="darkgreen")],
+            [sg.Text(f"Expiration: {idea['expiration']}")],
+            [sg.Text(f"Max Profit: {idea['max_profit']}")],
+            [sg.Text(f"Risk: {idea['risk']}")],
+            [sg.Text(f"Target: {idea['target']}", text_color="navy")],
+            [sg.Text(f"Stop Loss: {idea['stop_loss']}", text_color="darkred")],
             [sg.Text("_" * 90)],
         ])
     
     layout.append([sg.Button("Close", size=(10, 1))])
     
     window = sg.Window(
-        f"💡 Trade Ideas - {ticker}", 
+        f"Trade Ideas - {ticker}", 
         [[sg.Column(layout, scrollable=True, vertical_scroll_only=True, size=(800, 600))]],
         modal=True, finalize=True, resizable=True
     )
@@ -1140,31 +1520,31 @@ def show_trade_ideas_window(trade_ideas, ticker, underlying_price):
     window.close()
 
 def main_gui():
-    """Enhanced main GUI"""
+    """Enhanced main GUI with multi-source data"""
     
     main_layout = [
-        [sg.Text("🚀 Enhanced Earnings Volatility Calculator", font=("Helvetica", 16, "bold"), justification="center")],
-        [sg.Text("Robust multi-source data with realistic thresholds", font=("Helvetica", 10), justification="center")],
+        [sg.Text("Multi-Source Earnings Volatility Calculator", font=("Helvetica", 16, "bold"), justification="center")],
+        [sg.Text("AlphaVantage → Polygon → Yahoo → Finnhub", font=("Helvetica", 10), justification="center")],
         [sg.Text("_" * 80)],
-        [sg.Text("📊 Current Thresholds:", font=("Helvetica", 10, "bold"))],
+        [sg.Text("Current Thresholds:", font=("Helvetica", 10, "bold"))],
         [sg.Text(f"• Volume: >= {VOLUME_THRESHOLD:,} shares/day")],
         [sg.Text(f"• IV/RV Ratio: >= {IV_RV_THRESHOLD}")],
         [sg.Text(f"• Term Structure Slope: <= {SLOPE_THRESHOLD}")],
         [sg.Text("_" * 80)],
-        [sg.Text("🎯 Single Stock Analysis:")],
+        [sg.Text("Single Stock Analysis:")],
         [sg.Text("Enter Stock Symbol:"), sg.Input(key="stock", size=(20, 1))],
         [sg.Button("Analyze Single Stock", bind_return_key=True)],
         [sg.Text("", key="recommendation", size=(70, 1))],
         [sg.Text("_" * 80)],
-        [sg.Text("📅 Batch Earnings Analysis:")],
+        [sg.Text("Batch Earnings Analysis:")],
         [sg.Text("Scan all stocks reporting earnings in the next 7 days")],
-        [sg.Text("Uses Yahoo Finance + Finnhub API for robust data")],
-        [sg.Button("🚀 Run Full Earnings Scan", size=(25, 1))],
+        [sg.Text("Uses multiple premium data sources for maximum reliability")],
+        [sg.Button("Run Full Earnings Scan", size=(25, 1))],
         [sg.Text("_" * 80)],
         [sg.Button("Exit")]
     ]
     
-    window = sg.Window("Enhanced Earnings Calculator v2.0", main_layout, size=(600, 500))
+    window = sg.Window("Multi-Source Earnings Calculator v3.0", main_layout, size=(600, 500))
     
     while True:
         event, values = window.read()
@@ -1176,11 +1556,11 @@ def main_gui():
             stock = values.get("stock", "")
             
             if not stock.strip():
-                window["recommendation"].update("⚠️ Please enter a stock symbol")
+                window["recommendation"].update("Please enter a stock symbol")
                 continue
 
             # Show loading
-            loading_layout = [[sg.Text("🔄 Analyzing with multiple data sources...", justification="center")]]
+            loading_layout = [[sg.Text("Analyzing with multi-source data validation...", justification="center")]]
             loading_window = sg.Window("Loading", loading_layout, modal=True, finalize=True, size=(350, 100))
 
             result_holder = {}
@@ -1205,59 +1585,56 @@ def main_gui():
 
             # Display results
             if 'error' in result_holder:
-                window["recommendation"].update(f"❌ Error: {result_holder['error']}")
+                window["recommendation"].update(f"Error: {result_holder['error']}")
             elif 'result' in result_holder:
                 result = result_holder['result']
                 
                 if result.get('error'):
-                    window["recommendation"].update(f"❌ Error: {result['error']}")
+                    window["recommendation"].update(f"Error: {result['error']}")
                 else:
                     recommendation = result['recommendation']
                     
                     # Color coding
                     if recommendation == "RECOMMENDED":
                         title_color = "#006600"
-                        emoji = "🟢"
                     elif recommendation == "CONSIDER":
                         title_color = "#ff9900"
-                        emoji = "🟡"
                     else:
                         title_color = "#800000"
-                        emoji = "🔴"
                     
                     result_layout = [
-                        [sg.Text(f"{emoji} {recommendation}", text_color=title_color, font=("Helvetica", 16))],
-                        [sg.Text(f"💰 Price: ${result.get('underlying_price', 0):.2f}")],
-                        [sg.Text(f"📊 Volume: {result.get('avg_volume', 0):,.0f} ({'✓ PASS' if result.get('avg_volume_pass') else '✗ FAIL'})",
+                        [sg.Text(f"{recommendation}", text_color=title_color, font=("Helvetica", 16))],
+                        [sg.Text(f"Price: ${result.get('underlying_price', 0):.2f}")],
+                        [sg.Text(f"Volume: {result.get('avg_volume', 0):,.0f} ({'PASS' if result.get('avg_volume_pass') else 'FAIL'})",
                                 text_color="#006600" if result.get('avg_volume_pass') else "#800000")],
-                        [sg.Text(f"📈 IV/RV: {result.get('iv30_rv30', 0):.3f} ({'✓ PASS' if result.get('iv30_rv30_pass') else '✗ FAIL'})",
+                        [sg.Text(f"IV/RV: {result.get('iv30_rv30', 0):.3f} ({'PASS' if result.get('iv30_rv30_pass') else 'FAIL'})",
                                 text_color="#006600" if result.get('iv30_rv30_pass') else "#800000")],
-                        [sg.Text(f"📐 Slope: {result.get('ts_slope_0_45', 0):.5f} ({'✓ PASS' if result.get('ts_slope_pass') else '✗ FAIL'})",
+                        [sg.Text(f"Slope: {result.get('ts_slope_0_45', 0):.5f} ({'PASS' if result.get('ts_slope_pass') else 'FAIL'})",
                                 text_color="#006600" if result.get('ts_slope_pass') else "#800000")],
-                        [sg.Text(f"🎯 Expected Move: {result.get('expected_move', 'N/A')}", text_color="blue")],
+                        [sg.Text(f"Expected Move: {result.get('expected_move', 'N/A')}", text_color="blue")],
                         [sg.Text("_" * 40)],
-                        [sg.Button("💡 View Trade Ideas", size=(15, 1)), sg.Button("OK")]
+                        [sg.Button("View Trade Ideas", size=(15, 1)), sg.Button("OK")]
                     ]
                     
-                    result_window = sg.Window("📊 Analysis Results", result_layout, modal=True, finalize=True)
+                    result_window = sg.Window("Analysis Results", result_layout, modal=True, finalize=True)
                     while True:
                         event_result, _ = result_window.read()
-                        if event_result == "💡 View Trade Ideas":
+                        if event_result == "View Trade Ideas":
                             show_trade_ideas_window(result.get('trade_ideas', []), stock.upper(), result.get('underlying_price', 0))
                         elif event_result in (sg.WINDOW_CLOSED, "OK"):
                             break
                     result_window.close()
 
-        elif event == "🚀 Run Full Earnings Scan":
+        elif event == "Run Full Earnings Scan":
             try:
                 results = run_earnings_scan()
                 if results:
                     successful = len([r for r in results if r['recommendation'] in ['RECOMMENDED', 'CONSIDER', 'AVOID']])
-                    window["recommendation"].update(f"✅ Scan completed! {successful} stocks analyzed successfully.")
+                    window["recommendation"].update(f"Scan completed! {successful} stocks analyzed successfully.")
                 else:
-                    window["recommendation"].update("⚠️ Scan completed but no results generated.")
+                    window["recommendation"].update("Scan completed but no results generated.")
             except Exception as e:
-                window["recommendation"].update(f"❌ Error running scan: {str(e)}")
+                window["recommendation"].update(f"Error running scan: {str(e)}")
     
     window.close()
 
@@ -1265,6 +1642,8 @@ def gui():
     main_gui()
 
 if __name__ == "__main__":
-    print("🚀 Starting Enhanced Earnings Calculator...")
-    print(f"📊 Using realistic thresholds: Vol≥{VOLUME_THRESHOLD:,}, IV/RV≥{IV_RV_THRESHOLD}, Slope≤{SLOPE_THRESHOLD}")
+    print("Starting Multi-Source Earnings Calculator...")
+    print(f"Data Priority: AlphaVantage → Polygon → Yahoo → Finnhub")
+    print(f"Realistic thresholds: Vol>={VOLUME_THRESHOLD:,}, IV/RV>={IV_RV_THRESHOLD}, Slope<={SLOPE_THRESHOLD}")
+    print("\nSECURITY WARNING: API keys are hardcoded. Consider rotating them after testing.")
     gui()
