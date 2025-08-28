@@ -304,13 +304,13 @@ class PolygonSource(DataSource):
             return None
     
     def get_options_chain(self, symbol, expiration):
-        """Get options chain from Polygon"""
+        """Get options chain from Polygon - simplified approach"""
         try:
             endpoint = f"v3/reference/options/contracts"
             params = {
                 'underlying_ticker': symbol,
                 'expiration_date': expiration,
-                'limit': 1000
+                'limit': 200  # Reduced limit for free tier
             }
             
             data = self.make_request(endpoint, params)
@@ -325,37 +325,23 @@ class PolygonSource(DataSource):
                     if not strike:
                         continue
                     
-                    # Get last quote for this contract
-                    contract_ticker = contract.get('ticker')
-                    if contract_ticker:
-                        quote_endpoint = f"v3/last/quote/{contract_ticker}"
-                        quote_data = self.make_request(quote_endpoint)
-                        
-                        if quote_data and quote_data.get('status') == 'OK':
-                            results = quote_data.get('results', {})
-                            bid = results.get('bid')
-                            ask = results.get('ask')
-                            
-                            # Polygon doesn't provide IV directly, estimate or set to reasonable value
-                            implied_vol = 0.25  # Default IV estimate
-                            
-                            option_data = {
-                                'strike': float(strike),
-                                'impliedVolatility': implied_vol,
-                                'bid': float(bid) if bid else 0.0,
-                                'ask': float(ask) if ask else 0.0
-                            }
-                            
-                            if contract_type == 'call':
-                                calls_data.append(option_data)
-                            elif contract_type == 'put':
-                                puts_data.append(option_data)
-                
-                if calls_data or puts_data:
-                    return {
-                        'calls': pd.DataFrame(calls_data),
-                        'puts': pd.DataFrame(puts_data)
+                    # For free tier, we can't get real-time quotes for individual contracts
+                    # So we'll use estimated values and let the system fall back to Yahoo
+                    option_data = {
+                        'strike': float(strike),
+                        'impliedVolatility': 0.25,  # Estimated IV - will cause fallback to Yahoo
+                        'bid': 0.0,  # No bid data available
+                        'ask': 0.0   # No ask data available
                     }
+                    
+                    if contract_type == 'call':
+                        calls_data.append(option_data)
+                    elif contract_type == 'put':
+                        puts_data.append(option_data)
+                
+                # Since we don't have real bid/ask/IV data, return None to force fallback to Yahoo
+                print(f"Polygon options contracts found but no pricing data - falling back to Yahoo")
+                return None
             
             return None
             
