@@ -15,6 +15,15 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import os
 import json
 
+# Interactive Brokers integration
+try:
+    from ib_insync import *
+    IB_AVAILABLE = True
+    print("Interactive Brokers (ib_insync) available")
+except ImportError:
+    IB_AVAILABLE = False
+    print("Interactive Brokers (ib_insync) not available - install with: pip install ib_insync")
+
 # =============================================================================
 # CONFIGURATION - REALISTIC THRESHOLDS
 # =============================================================================
@@ -31,6 +40,11 @@ FINNHUB_API_KEY = "d2hfijpr01qon4ec0eu0d2hfijpr01qon4ec0eug"
 ALPHAVANTAGE_BASE_URL = "https://www.alphavantage.co/query"
 POLYGON_BASE_URL = "https://api.polygon.io"
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+
+# Interactive Brokers configuration
+IB_HOST = "127.0.0.1"  # localhost
+IB_PORT = 7497         # TWS demo port (7496 for live, 4001 for IB Gateway demo, 4000 for live)
+IB_CLIENT_ID = 1       # Client ID
 
 # =============================================================================
 # DATA SOURCE CLASSES
@@ -51,8 +65,236 @@ class DataSource:
     def get_price_history(self, symbol, period_days=90):
         raise NotImplementedError
 
+class InteractiveBrokersSource(DataSource):
+    """Interactive Brokers data source using ib_insync - PRIORITY 1"""
+    
+    def __init__(self, host=IB_HOST, port=IB_PORT, client_id=IB_CLIENT_ID):
+        self.name = "Interactive Brokers"
+        self.host = host
+        self.port = port
+        self.client_id = client_id
+        self.ib = None
+        self.connected = False
+        
+        if IB_AVAILABLE:
+            self.connect()
+    
+    def connect(self):
+        """Connect to Interactive Brokers TWS/Gateway"""
+        try:
+            self.ib = IB()
+            self.ib.connect(self.host, self.port, clientId=self.client_id, timeout=10)
+            self.connected = True
+            print(f"✓ Connected to Interactive Brokers at {self.host}:{self.port}")
+        except Exception as e:
+            print(f"✗ Failed to connect to Interactive Brokers: {e}")
+            print(f"  Make sure TWS/IB Gateway is running on {self.host}:{self.port}")
+            self.connected = False
+    
+    def disconnect(self):
+        """Disconnect from Interactive Brokers"""
+        if self.ib and self.connected:
+            self.ib.disconnect()
+            self.connected = False
+    
+    def get_current_price(self, symbol):
+        if not self.connected:
+            return None
+            
+        try:
+            # Create stock contract
+            contract = Stock(symbol, 'SMART', 'USD')
+            
+            # Get market data
+            ticker = self.ib.reqMktData(contract, '', False, False)
+            self.ib.sleep(2)  # Wait for data
+            
+            if ticker and ticker.last and ticker.last > 0:
+                price = float(ticker.last)
+                self.ib.cancelMktData(contract)
+                return price
+            elif ticker and ticker.close and ticker.close > 0:
+                price = float(ticker.close)
+                self.ib.cancelMktData(contract)
+                return price
+            
+            self.ib.cancelMktData(contract)
+            return None
+        except Exception as e:
+            print(f"IB price error for {symbol}: {e}")
+            return None
+    
+    def get_options_expirations(self, symbol):
+        if not self.connected:
+            return None
+            
+        try:
+            # Create stock contract
+            stock_contract = Stock(symbol, 'SMART', 'USD')
+            
+            # Request option chains
+            chains = self.ib.reqSecDefOptParams(stock_contract.symbol, '', stock_contract.secType, stock_contract.conId)
+            
+            if chains:
+                expirations = set()
+                for chain in chains:
+                    for exp in chain.expirations:
+                        # Convert YYYYMMDD to YYYY-MM-DD
+                        if len(exp) == 8:
+                            formatted_exp = f"{exp[:4]}-{exp[4:6]}-{exp[6:8]}"
+                            exp_date = datetime.strptime(formatted_exp, "%Y-%m-%d").date()
+                            if exp_date >= datetime.now().date():
+                                expirations.add(formatted_exp)
+                
+                return sorted(list(expirations))[:12]  # Return first 12
+            return None
+        except Exception as e:
+            print(f"IB options expirations error for {symbol}: {e}")
+            return None
+    
+    def get_options_chain(self, symbol, expiration):
+        if not self.connected:
+            return None
+            
+        try:
+            # Convert expiration format YYYY-MM-DD to YYYYMMDD
+            exp_formatted = expiration.replace('-', '')
+            
+            # Create stock contract
+            stock_contract = Stock(symbol, 'SMART', 'USD')
+            
+            # Get option chain parameters
+            chains = self.ib.reqSecDefOptParams(stock_contract.symbol, '', stock_contract.secType, stock_contract.conId)
+            
+            if not chains:
+                return None
+            
+            # Find the right chain
+            target_chain = None
+            for chain in chains:
+                if exp_formatted in chain.expirations:
+                    target_chain = chain
+                    break
+            
+            if not target_chain:
+                return None
+            
+            # Get strikes around current price
+            current_price = self.get_current_price(symbol)
+            if not current_price:
+                return None
+            
+            # Filter strikes to reasonable range around current price
+            min_strike = current_price * 0.8
+            max_strike = current_price * 1.2
+            relevant_strikes = [s for s in target_chain.strikes if min_strike <= s <= max_strike]
+            
+            if not relevant_strikes:
+                relevant_strikes = target_chain.strikes[:20]  # Take first 20 if no filter works
+            
+            calls_data = []
+            puts_data = []
+            
+            # Request option contracts
+            contracts = []
+            for strike in relevant_strikes[:15]:  # Limit to 15 strikes for speed
+                # Call contract
+                call_contract = Option(symbol, exp_formatted, strike, 'C', 'SMART')
+                contracts.append(call_contract)
+                
+                # Put contract  
+                put_contract = Option(symbol, exp_formatted, strike, 'P', 'SMART')
+                contracts.append(put_contract)
+            
+            # Qualify contracts
+            qualified_contracts = self.ib.qualifyContracts(*contracts)
+            
+            # Get market data for qualified contracts
+            for contract in qualified_contracts:
+                try:
+                    ticker = self.ib.reqMktData(contract, '106', False, False)  # 106 = option implied volatility
+                    self.ib.sleep(1)
+                    
+                    if ticker:
+                        bid = ticker.bid if ticker.bid and ticker.bid > 0 else 0
+                        ask = ticker.ask if ticker.ask and ticker.ask > 0 else 0
+                        iv = ticker.impliedVolatility if ticker.impliedVolatility and ticker.impliedVolatility > 0 else 0.25
+                        
+                        option_data = {
+                            'strike': float(contract.strike),
+                            'impliedVolatility': float(iv),
+                            'bid': float(bid),
+                            'ask': float(ask)
+                        }
+                        
+                        if contract.right == 'C':
+                            calls_data.append(option_data)
+                        else:
+                            puts_data.append(option_data)
+                    
+                    self.ib.cancelMktData(contract)
+                
+                except Exception as e:
+                    continue
+            
+            if calls_data or puts_data:
+                return {
+                    'calls': pd.DataFrame(calls_data).sort_values('strike'),
+                    'puts': pd.DataFrame(puts_data).sort_values('strike')
+                }
+            
+            return None
+            
+        except Exception as e:
+            print(f"IB options chain error for {symbol} {expiration}: {e}")
+            return None
+    
+    def get_price_history(self, symbol, period_days=90):
+        if not self.connected:
+            return None
+            
+        try:
+            # Create stock contract
+            contract = Stock(symbol, 'SMART', 'USD')
+            
+            # Request historical data
+            end_time = datetime.now()
+            duration = f"{period_days} D"
+            
+            bars = self.ib.reqHistoricalData(
+                contract,
+                endDateTime=end_time,
+                durationStr=duration,
+                barSizeSetting='1 day',
+                whatToShow='TRADES',
+                useRTH=True,
+                formatDate=1
+            )
+            
+            if bars:
+                df_data = []
+                for bar in bars:
+                    df_data.append({
+                        'Date': pd.to_datetime(bar.date),
+                        'Open': float(bar.open),
+                        'High': float(bar.high),
+                        'Low': float(bar.low),
+                        'Close': float(bar.close),
+                        'Volume': int(bar.volume)
+                    })
+                
+                df = pd.DataFrame(df_data)
+                df.set_index('Date', inplace=True)
+                return df
+            
+            return None
+            
+        except Exception as e:
+            print(f"IB history error for {symbol}: {e}")
+            return None
+
 class AlphaVantageSource(DataSource):
-    """AlphaVantage API data source - PRIORITY 1"""
+    """AlphaVantage API data source - PRIORITY 2"""
     
     def __init__(self, api_key):
         self.api_key = api_key
@@ -138,7 +380,6 @@ class AlphaVantageSource(DataSource):
         """Get options chain from AlphaVantage"""
         try:
             # AlphaVantage has limited options data in free tier
-            # Try to get basic options data
             params = {
                 'function': 'HISTORICAL_OPTIONS',
                 'symbol': symbol,
@@ -220,7 +461,7 @@ class AlphaVantageSource(DataSource):
             return None
 
 class PolygonSource(DataSource):
-    """Polygon API data source - PRIORITY 2"""
+    """Polygon API data source - PRIORITY 3"""
     
     def __init__(self, api_key):
         self.api_key = api_key
@@ -315,32 +556,8 @@ class PolygonSource(DataSource):
             
             data = self.make_request(endpoint, params)
             if data and data.get('status') == 'OK' and 'results' in data:
-                calls_data = []
-                puts_data = []
-                
-                for contract in data['results']:
-                    contract_type = contract.get('contract_type')
-                    strike = contract.get('strike_price')
-                    
-                    if not strike:
-                        continue
-                    
-                    # For free tier, we can't get real-time quotes for individual contracts
-                    # So we'll use estimated values and let the system fall back to Yahoo
-                    option_data = {
-                        'strike': float(strike),
-                        'impliedVolatility': 0.25,  # Estimated IV - will cause fallback to Yahoo
-                        'bid': 0.0,  # No bid data available
-                        'ask': 0.0   # No ask data available
-                    }
-                    
-                    if contract_type == 'call':
-                        calls_data.append(option_data)
-                    elif contract_type == 'put':
-                        puts_data.append(option_data)
-                
                 # Since we don't have real bid/ask/IV data, return None to force fallback to Yahoo
-                print(f"Polygon options contracts found but no pricing data - falling back to Yahoo")
+                print(f"Polygon options contracts found but no pricing data - falling back to next source")
                 return None
             
             return None
@@ -561,13 +778,21 @@ class DataSourceManager:
     """Manages multiple data sources with priority ordering"""
     
     def __init__(self):
-        # PRIORITY ORDER: AlphaVantage -> Polygon -> Yahoo -> Finnhub
-        self.sources = [
+        # PRIORITY ORDER: Interactive Brokers -> AlphaVantage -> Polygon -> Yahoo -> Finnhub
+        self.sources = []
+        
+        if IB_AVAILABLE:
+            ib_source = InteractiveBrokersSource()
+            if ib_source.connected:
+                self.sources.append(ib_source)
+        
+        self.sources.extend([
             AlphaVantageSource(ALPHAVANTAGE_API_KEY),
             PolygonSource(POLYGON_API_KEY),
             YahooFinanceSource(),
             FinnhubSource(FINNHUB_API_KEY)
-        ]
+        ])
+        
         print(f"Initialized {len(self.sources)} data sources in priority order:")
         for i, source in enumerate(self.sources, 1):
             print(f"  {i}. {source.name}")
@@ -622,59 +847,52 @@ class DataSourceManager:
                 continue
         print(f"No sufficient price history available for {symbol}")
         return None
+    
+    def cleanup(self):
+        """Cleanup connections"""
+        for source in self.sources:
+            if hasattr(source, 'disconnect'):
+                try:
+                    source.disconnect()
+                except:
+                    pass
 
 # =============================================================================
 # EARNINGS CALENDAR FUNCTIONS
 # =============================================================================
 
 def get_earnings_calendar(days_ahead=7):
-    """Get earnings calendar with multiple fallback sources"""
+    """Get earnings calendar with multiple fallback sources and save to Excel"""
     print(f"Fetching earnings calendar for next {days_ahead} days...")
     
     tickers = []
     
-    # Method 1: Try Polygon earnings calendar first
+    # Method 1: Try Finnhub earnings calendar
     try:
-        print("Trying Polygon earnings calendar...")
-        polygon_source = PolygonSource(POLYGON_API_KEY)
+        print("Trying Finnhub earnings calendar...")
+        finnhub_source = FinnhubSource(FINNHUB_API_KEY)
         
-        # Get current date range
-        start_date = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now().strftime("%Y-%m-%d")
         end_date = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
         
-        # Polygon doesn't have earnings calendar in free tier, skip to next method
-        pass
+        earnings_data = finnhub_source.make_request("calendar/earnings", {
+            "from": today,
+            "to": end_date
+        })
         
+        if earnings_data and 'earningsCalendar' in earnings_data:
+            for item in earnings_data['earningsCalendar'][:30]:  # Limit to 30
+                if 'symbol' in item and 'date' in item:
+                    tickers.append({
+                        'ticker': item['symbol'],
+                        'earnings_date': item['date'],
+                        'company': item.get('symbol', item['symbol'])
+                    })
+                    
     except Exception as e:
-        print(f"Polygon earnings calendar failed: {e}")
+        print(f"Finnhub earnings calendar failed: {e}")
     
-    # Method 2: Try Finnhub earnings calendar
-    if not tickers:
-        try:
-            print("Trying Finnhub earnings calendar...")
-            finnhub_source = FinnhubSource(FINNHUB_API_KEY)
-            
-            today = datetime.now().strftime("%Y-%m-%d")
-            end_date = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-            
-            earnings_data = finnhub_source.make_request("calendar/earnings", {
-                "from": today,
-                "to": end_date
-            })
-            
-            if earnings_data and 'earningsCalendar' in earnings_data:
-                for item in earnings_data['earningsCalendar'][:25]:  # Limit to 25
-                    if 'symbol' in item and 'date' in item:
-                        tickers.append({
-                            'ticker': item['symbol'],
-                            'earnings_date': item['date'],
-                            'company': item.get('symbol', item['symbol'])
-                        })
-                        
-        except Exception as e:
-            print(f"Finnhub earnings calendar failed: {e}")
-    
-    # Method 3: Try Yahoo Finance earnings calendar
+    # Method 2: Try Yahoo Finance earnings calendar
     if not tickers:
         try:
             print("Trying Yahoo Finance earnings calendar...")
@@ -723,7 +941,7 @@ def get_earnings_calendar(days_ahead=7):
         except Exception as e:
             print(f"Yahoo earnings calendar failed: {e}")
     
-    # Method 4: Fallback list of popular stocks
+    # Method 3: Fallback list of popular stocks
     if not tickers:
         print("Using fallback list of popular earnings stocks...")
         fallback_tickers = [
@@ -751,10 +969,80 @@ def get_earnings_calendar(days_ahead=7):
     
     print(f"Found {len(unique_tickers)} unique tickers for earnings analysis")
     
-    return pd.DataFrame(unique_tickers)
+    # Create and save earnings calendar DataFrame
+    earnings_df = pd.DataFrame(unique_tickers)
+    
+    # Save earnings calendar to Excel
+    export_earnings_calendar(earnings_df, days_ahead)
+    
+    return earnings_df
+
+def export_earnings_calendar(earnings_df, days_ahead):
+    """Export earnings calendar to Excel"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"earnings_calendar_{days_ahead}days_{timestamp}.xlsx"
+    
+    print(f"Exporting earnings calendar to: {filename}")
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Earnings Calendar ({days_ahead} Days)"
+    
+    # Add header with date range
+    date_range = f"{datetime.now().strftime('%Y-%m-%d')} to {(datetime.now() + timedelta(days=days_ahead)).strftime('%Y-%m-%d')}"
+    ws.append([f"EARNINGS CALENDAR: {date_range}"])
+    ws.append(["Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    ws.append([""])  # Empty row
+    
+    # Headers
+    headers = ['Ticker', 'Company', 'Earnings Date', 'Day of Week']
+    ws.append(headers)
+    
+    # Style headers
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=4, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Add data
+    for _, row in earnings_df.iterrows():
+        earnings_date = row['earnings_date']
+        try:
+            date_obj = datetime.strptime(earnings_date, "%Y-%m-%d")
+            day_of_week = date_obj.strftime("%A")
+        except:
+            day_of_week = "Unknown"
+        
+        ws.append([
+            row['ticker'],
+            row['company'],
+            earnings_date,
+            day_of_week
+        ])
+    
+    # Auto-adjust column widths
+    for column in ws.columns:
+        max_length = 0
+        column = [cell for cell in column]
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 30)
+        ws.column_dimensions[column[0].column_letter].width = adjusted_width
+    
+    # Save workbook
+    wb.save(filename)
+    print(f"Earnings calendar saved to: {filename}")
 
 # =============================================================================
-# ANALYSIS FUNCTIONS
+# ANALYSIS FUNCTIONS (unchanged)
 # =============================================================================
 
 def filter_dates(dates):
@@ -1250,7 +1538,7 @@ def export_to_excel(results, filename=None):
         ws.append([f"ANALYSIS REPORT: {ticker}", ""])
         ws.cell(row=1, column=1).font = Font(bold=True, size=14)
         ws.append(["Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-        ws.append(["Data Sources:", "AlphaVantage → Polygon → Yahoo → Finnhub"])
+        ws.append(["Data Sources:", "Interactive Brokers → AlphaVantage → Polygon → Yahoo → Finnhub"])
         ws.append(["", ""])
         
         # Analysis metrics
@@ -1329,7 +1617,7 @@ def run_earnings_scan():
     
     progress_layout = [
         [sg.Text("Multi-Source Earnings Scanner", font=("Helvetica", 14, "bold"))],
-        [sg.Text("Priority: AlphaVantage → Polygon → Yahoo → Finnhub", font=("Helvetica", 9))],
+        [sg.Text("Priority: IB → AlphaVantage → Polygon → Yahoo → Finnhub", font=("Helvetica", 9))],
         [sg.Text("", key="status", size=(70, 1))],
         [sg.ProgressBar(100, orientation='h', size=(60, 20), key='progress')],
         [sg.Text("", key="current_ticker", size=(70, 1))],
@@ -1426,16 +1714,19 @@ Trading Recommendations:
 • AVOID: {avoid}
 
 Data Sources Used (Priority Order):
-1. AlphaVantage API (options & history)
-2. Polygon API (comprehensive data)
-3. Yahoo Finance (reliable fallback)
-4. Finnhub API (backup data)
+1. Interactive Brokers (live data)
+2. AlphaVantage API (options & history)
+3. Polygon API (comprehensive data)
+4. Yahoo Finance (reliable fallback)
+5. Finnhub API (backup data)
 
 Results exported to Excel with:
 ✓ Comprehensive summary sheet
 ✓ Individual analysis for each ticker
 ✓ Detailed trade ideas and strategies
 ✓ Multi-source data validation
+
+Earnings Calendar also saved separately.
 
 Adjusted Thresholds Used:
 • Volume: >= {VOLUME_THRESHOLD:,} (more inclusive)
@@ -1464,7 +1755,7 @@ def show_trade_ideas_window(trade_ideas, ticker, underlying_price):
                 font=("Helvetica", 14, "bold"), justification="center")],
         [sg.Text(f"Using Thresholds: Vol>={VOLUME_THRESHOLD:,}, IV/RV>={IV_RV_THRESHOLD}, Slope<={SLOPE_THRESHOLD}", 
                 font=("Helvetica", 8), justification="center")],
-        [sg.Text("Data: AlphaVantage → Polygon → Yahoo → Finnhub", 
+        [sg.Text("Data: IB → AlphaVantage → Polygon → Yahoo → Finnhub", 
                 font=("Helvetica", 8), justification="center")],
         [sg.Text("_" * 90)],
     ]
@@ -1506,11 +1797,24 @@ def show_trade_ideas_window(trade_ideas, ticker, underlying_price):
     window.close()
 
 def main_gui():
-    """Enhanced main GUI with multi-source data"""
+    """Enhanced main GUI with Interactive Brokers integration"""
+    
+    ib_status = "✓ Connected" if IB_AVAILABLE else "✗ Not Available"
+    if IB_AVAILABLE:
+        try:
+            ib_test = InteractiveBrokersSource()
+            if ib_test.connected:
+                ib_status = "✓ Connected to IB"
+                ib_test.disconnect()
+            else:
+                ib_status = "✗ IB Not Connected"
+        except:
+            ib_status = "✗ IB Connection Failed"
     
     main_layout = [
-        [sg.Text("Multi-Source Earnings Volatility Calculator", font=("Helvetica", 16, "bold"), justification="center")],
-        [sg.Text("AlphaVantage → Polygon → Yahoo → Finnhub", font=("Helvetica", 10), justification="center")],
+        [sg.Text("Professional Earnings Volatility Calculator", font=("Helvetica", 16, "bold"), justification="center")],
+        [sg.Text("Interactive Brokers → AlphaVantage → Polygon → Yahoo → Finnhub", font=("Helvetica", 10), justification="center")],
+        [sg.Text(f"Interactive Brokers Status: {ib_status}", font=("Helvetica", 9), justification="center")],
         [sg.Text("_" * 80)],
         [sg.Text("Current Thresholds:", font=("Helvetica", 10, "bold"))],
         [sg.Text(f"• Volume: >= {VOLUME_THRESHOLD:,} shares/day")],
@@ -1522,15 +1826,16 @@ def main_gui():
         [sg.Button("Analyze Single Stock", bind_return_key=True)],
         [sg.Text("", key="recommendation", size=(70, 1))],
         [sg.Text("_" * 80)],
-        [sg.Text("Batch Earnings Analysis:")],
+        [sg.Text("Earnings Calendar & Analysis:")],
+        [sg.Text("View earnings calendar for the next 7 days")],
+        [sg.Button("Export Earnings Calendar", size=(25, 1))],
         [sg.Text("Scan all stocks reporting earnings in the next 7 days")],
-        [sg.Text("Uses multiple premium data sources for maximum reliability")],
         [sg.Button("Run Full Earnings Scan", size=(25, 1))],
         [sg.Text("_" * 80)],
         [sg.Button("Exit")]
     ]
     
-    window = sg.Window("Multi-Source Earnings Calculator v3.0", main_layout, size=(600, 500))
+    window = sg.Window("Professional Earnings Calculator v4.0", main_layout, size=(650, 550))
     
     while True:
         event, values = window.read()
@@ -1546,7 +1851,7 @@ def main_gui():
                 continue
 
             # Show loading
-            loading_layout = [[sg.Text("Analyzing with multi-source data validation...", justification="center")]]
+            loading_layout = [[sg.Text("Analyzing with professional data sources...", justification="center")]]
             loading_window = sg.Window("Loading", loading_layout, modal=True, finalize=True, size=(350, 100))
 
             result_holder = {}
@@ -1611,6 +1916,14 @@ def main_gui():
                             break
                     result_window.close()
 
+        elif event == "Export Earnings Calendar":
+            try:
+                # Get and save earnings calendar
+                earnings_df = get_earnings_calendar(days_ahead=7)
+                window["recommendation"].update(f"Earnings calendar exported! Found {len(earnings_df)} stocks.")
+            except Exception as e:
+                window["recommendation"].update(f"Error exporting calendar: {str(e)}")
+
         elif event == "Run Full Earnings Scan":
             try:
                 results = run_earnings_scan()
@@ -1622,14 +1935,28 @@ def main_gui():
             except Exception as e:
                 window["recommendation"].update(f"Error running scan: {str(e)}")
     
+    # Cleanup connections
+    try:
+        data_manager = DataSourceManager()
+        data_manager.cleanup()
+    except:
+        pass
+    
     window.close()
 
 def gui():
     main_gui()
 
 if __name__ == "__main__":
-    print("Starting Multi-Source Earnings Calculator...")
-    print(f"Data Priority: AlphaVantage → Polygon → Yahoo → Finnhub")
+    print("Starting Professional Earnings Calculator...")
+    print(f"Data Priority: Interactive Brokers → AlphaVantage → Polygon → Yahoo → Finnhub")
     print(f"Realistic thresholds: Vol>={VOLUME_THRESHOLD:,}, IV/RV>={IV_RV_THRESHOLD}, Slope<={SLOPE_THRESHOLD}")
+    
+    if IB_AVAILABLE:
+        print(f"Interactive Brokers integration available")
+        print(f"Make sure TWS/IB Gateway is running on {IB_HOST}:{IB_PORT}")
+    else:
+        print("Interactive Brokers not available - install with: pip install ib_insync")
+    
     print("\nSECURITY WARNING: API keys are hardcoded. Consider rotating them after testing.")
     gui()
