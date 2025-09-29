@@ -1,0 +1,20 @@
+YEARLY RETURNS SUMMARY STATISTICS
+==================================================
+
+                  Avg_Annual_Return_%  Std_Annual_Return_%  Best_Year_%  Worst_Year_%  Positive_Years  Negative_Years  Win_Rate_%  Years_Data
+Original_QQQ                    14.36                12.68        65.80         -0.65            26.0             1.0       96.30        27.0
+MarketRegime_QQQ                 6.18                 6.74        19.09         -6.48            19.0             5.0       70.37        27.0
+DynamicStop_QQQ                 10.48                11.53        52.89         -7.30            24.0             3.0       88.89        27.0
+LongShort                        5.51                 7.24        16.74        -11.25            16.0             4.0       59.26        27.0
+BuyHold_QQQ                     14.79                31.10        78.95        -41.73            21.0             6.0       77.78        27.0
+BuyHold_SPY                      9.85                17.62        32.31        -36.80            21.0             6.0       77.78        27.0
+
+Definitions:
+- Avg_Annual_Return_%: Average yearly return
+- Std_Annual_Return_%: Standard deviation of yearly returns
+- Best_Year_%: Best single year performance
+- Worst_Year_%: Worst single year performance
+- Positive_Years: Number of years with positive returns
+- Negative_Years: Number of years with negative returns
+- Win_Rate_%: Percentage of years with positive returns
+- Years_Data: Total years of data available
