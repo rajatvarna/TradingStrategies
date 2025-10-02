@@ -16,9 +16,9 @@ from plotly.subplots import make_subplots
 import xlsxwriter
 
 class CryptoTrendStrategy:
-    def __init__(self, symbols=None, benchmark_symbols=None, start_date='2014-01-01', 
-                 transaction_cost=0.001, target_volatility=0.30, max_leverage=2.0,
-                 fast_ma=50, slow_ma=55):
+    def __init__(self, symbols=None, benchmark_symbols=None, start_date='2018-01-01', 
+                 transaction_cost=0.001, target_volatility=0.25, max_leverage=2.0,
+                 ma_period=50):
         """
         Initialize the Crypto Trend Trading Strategy
         
@@ -36,10 +36,8 @@ class CryptoTrendStrategy:
             Target annualized volatility for position sizing
         max_leverage : float
             Maximum leverage allowed (2.0 = 200%)
-        fast_ma : int
-            Fast moving average period
-        slow_ma : int
-            Slow moving average period
+        ma_period : int
+            Moving average period for trend signal
         """
         
         # Default cryptocurrency symbols (top liquid cryptos)
@@ -60,8 +58,7 @@ class CryptoTrendStrategy:
         self.transaction_cost = transaction_cost
         self.target_volatility = target_volatility
         self.max_leverage = max_leverage
-        self.fast_ma = fast_ma
-        self.slow_ma = slow_ma
+        self.ma_period = ma_period
         
         # Initialize data containers
         self.data = {}
@@ -102,7 +99,7 @@ class CryptoTrendStrategy:
                 data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
                 
                 # Check if we have sufficient data for MA calculation
-                min_required = max(self.fast_ma, self.slow_ma) + 50  # Extra buffer
+                min_required = self.ma_period + 50  # Extra buffer
                 if len(data) < min_required:
                     print(f"✗ Insufficient data for {symbol}: {len(data)} < {min_required}")
                     continue
@@ -141,56 +138,36 @@ class CryptoTrendStrategy:
         if successful_downloads == 0:
             raise ValueError("No cryptocurrency data was successfully downloaded!")
     
-    def calculate_ma_crossover_signals(self, data):
-        """Calculate Moving Average Crossover signals"""
+    def calculate_ma_signals(self, data):
+        """
+        Calculate Moving Average trend-following signals
         
-        # Calculate moving averages
-        fast_ma = data['Close'].rolling(window=self.fast_ma).mean()
-        slow_ma = data['Close'].rolling(window=self.slow_ma).mean()
+        Logic: 
+        - Long (1) when price > MA
+        - Flat (0) when price < MA
+        """
+        
+        # Calculate moving average
+        ma = data['Close'].rolling(window=self.ma_period).mean()
         
         # Initialize signals
         signals = pd.Series(0.0, index=data.index)
         
-        # Calculate crossover signals
-        # Entry: Fast MA crosses above Slow MA
-        # Exit: Fast MA crosses below Slow MA
-        
-        # Identify crossover points
-        ma_diff = fast_ma - slow_ma
-        ma_diff_prev = ma_diff.shift(1)
-        
-        # Bullish crossover: previous diff was negative, current diff is positive
-        bullish_cross = (ma_diff_prev < 0) & (ma_diff > 0)
-        
-        # Bearish crossover: previous diff was positive, current diff is negative  
-        bearish_cross = (ma_diff_prev > 0) & (ma_diff < 0)
-        
-        # Track position state
-        in_position = False
-        
-        for i in range(max(self.fast_ma, self.slow_ma), len(data)):
+        # Simple logic: Long when price above MA, Flat when price below MA
+        for i in range(self.ma_period, len(data)):
             
             # Check for valid data
-            if pd.isna(fast_ma.iloc[i]) or pd.isna(slow_ma.iloc[i]):
+            if pd.isna(ma.iloc[i]) or pd.isna(data['Close'].iloc[i]):
                 continue
             
-            # Check for bullish crossover (entry signal)
-            if bullish_cross.iloc[i]:
+            # Entry/Stay Long: Price above MA
+            if data['Close'].iloc[i] > ma.iloc[i]:
                 signals.iloc[i] = 1.0
-                in_position = True
-                
-            # Check for bearish crossover (exit signal)
-            elif bearish_cross.iloc[i]:
-                signals.iloc[i] = 0.0
-                in_position = False
-                
-            # Maintain current position if no crossover
-            elif in_position:
-                signals.iloc[i] = 1.0
+            # Exit/Stay Flat: Price below MA
             else:
                 signals.iloc[i] = 0.0
         
-        return signals, fast_ma, slow_ma
+        return signals, ma
     
     def calculate_volatility_position_size(self, returns, target_vol=None):
         """Calculate position size based on volatility targeting"""
@@ -214,15 +191,15 @@ class CryptoTrendStrategy:
         return position_sizes
     
     def generate_asset_strategy(self, symbol):
-        """Generate trading strategy for a single asset using MA crossover"""
+        """Generate trading strategy for a single asset using price vs MA"""
         try:
             data = self.data[symbol].copy()
             
             # Calculate returns
             data['Returns'] = data['Close'].pct_change()
             
-            # Generate MA crossover signals
-            raw_signals, fast_ma, slow_ma = self.calculate_ma_crossover_signals(data)
+            # Generate price vs MA signals
+            raw_signals, ma = self.calculate_ma_signals(data)
             
             # Calculate position sizes based on volatility
             position_sizes = self.calculate_volatility_position_size(data['Returns'])
@@ -233,28 +210,172 @@ class CryptoTrendStrategy:
             # Calculate strategy returns
             strategy_returns = positions.shift(1) * data['Returns']
             
+            # Track individual trades for this asset
+            self.track_trades(symbol, data, raw_signals, positions)
+            
             # Store results including MA data for analysis
             self.signals[symbol] = raw_signals
             self.positions[symbol] = positions
             self.returns[symbol] = strategy_returns
             
             # Store MA data for plotting/analysis
-            data['Fast_MA'] = fast_ma
-            data['Slow_MA'] = slow_ma
+            data[f'MA_{self.ma_period}'] = ma
             self.data[symbol] = data
             
             # Calculate some basic stats
-            total_trades = (raw_signals.diff() != 0).sum()
             long_periods = raw_signals.sum()
             avg_position = positions.mean()
             
-            print(f"✓ {symbol}: {total_trades:.0f} trades, {long_periods:.0f} long days, avg position: {avg_position:.2f}")
+            # Count signal changes (trades)
+            signal_changes = (raw_signals.diff() != 0).sum()
+            
+            print(f"✓ {symbol}: {signal_changes:.0f} signal changes, {long_periods:.0f} long days, avg position: {avg_position:.2f}")
             
             return strategy_returns
             
         except Exception as e:
             print(f"✗ Error processing {symbol}: {e}")
             return pd.Series(dtype=float)
+    
+    def track_trades(self, symbol, data, signals, positions):
+        """Track individual trades for an asset"""
+        try:
+            in_trade = False
+            entry_date = None
+            entry_price = 0
+            entry_position = 0
+            
+            for i in range(1, len(signals)):  # Start from 1 to check previous signal
+                prev_signal = signals.iloc[i-1]
+                current_signal = signals.iloc[i]
+                current_price = data['Close'].iloc[i]
+                current_date = data.index[i]
+                
+                if pd.isna(current_signal) or pd.isna(current_price) or pd.isna(prev_signal):
+                    continue
+                
+                # Entry: signal goes from 0 to 1
+                if prev_signal == 0 and current_signal > 0:
+                    in_trade = True
+                    entry_date = current_date
+                    entry_price = current_price
+                    entry_position = positions.iloc[i]
+                
+                # Exit: signal goes from 1 to 0
+                elif prev_signal > 0 and current_signal == 0 and in_trade:
+                    exit_date = current_date
+                    exit_price = current_price
+                    
+                    # Calculate trade metrics
+                    pnl_pct = (exit_price - entry_price) / entry_price * 100
+                    duration = (exit_date - entry_date).days
+                    
+                    trade = {
+                        'Symbol': symbol,
+                        'Entry_Date': entry_date,
+                        'Exit_Date': exit_date,
+                        'Entry_Price': entry_price,
+                        'Exit_Price': exit_price,
+                        'PnL_Pct': pnl_pct,
+                        'Duration_Days': duration,
+                        'Position_Size': entry_position,
+                        'Status': 'CLOSED'
+                    }
+                    
+                    self.trades.append(trade)
+                    in_trade = False
+            
+            # Handle open trade at end
+            if in_trade and entry_date is not None:
+                exit_date = data.index[-1]
+                exit_price = data['Close'].iloc[-1]
+                pnl_pct = (exit_price - entry_price) / entry_price * 100
+                duration = (exit_date - entry_date).days
+                
+                trade = {
+                    'Symbol': symbol,
+                    'Entry_Date': entry_date,
+                    'Exit_Date': exit_date,
+                    'Entry_Price': entry_price,
+                    'Exit_Price': exit_price,
+                    'PnL_Pct': pnl_pct,
+                    'Duration_Days': duration,
+                    'Position_Size': entry_position,
+                    'Status': 'OPEN'
+                }
+                
+                self.trades.append(trade)
+                
+        except Exception as e:
+            print(f"Error tracking trades for {symbol}: {e}")
+    
+    def display_current_signals(self):
+        """Display current signal status for all assets"""
+        print("\n" + "=" * 100)
+        print("CURRENT SIGNAL STATUS FOR ALL CRYPTOS")
+        print("=" * 100)
+        print(f"{'Symbol':<12} {'Current Price':<15} {'MA-50':<15} {'Signal':<10} {'Position':<10} {'Status':<10}")
+        print("-" * 100)
+        
+        signal_summary = []
+        
+        for symbol in sorted(self.data.keys()):
+            try:
+                data = self.data[symbol]
+                if len(data) == 0:
+                    continue
+                
+                current_price = data['Close'].iloc[-1]
+                ma_col = f'MA_{self.ma_period}'
+                
+                if ma_col not in data.columns:
+                    continue
+                    
+                ma_value = data[ma_col].iloc[-1]
+                signal = self.signals[symbol].iloc[-1]
+                position = self.positions[symbol].iloc[-1]
+                
+                # Determine status
+                if signal > 0:
+                    status = "LONG"
+                else:
+                    status = "FLAT"
+                
+                print(f"{symbol:<12} ${current_price:<14,.2f} ${ma_value:<14,.2f} {signal:<10.2f} {position:<10.2f} {status:<10}")
+                
+                signal_summary.append({
+                    'Symbol': symbol,
+                    'Price': current_price,
+                    'MA': ma_value,
+                    'Signal': signal,
+                    'Position': position,
+                    'Status': status
+                })
+                
+            except Exception as e:
+                print(f"{symbol:<12} Error: {e}")
+        
+        # Summary statistics
+        long_count = sum(1 for s in signal_summary if s['Status'] == 'LONG')
+        flat_count = len(signal_summary) - long_count
+        
+        print("-" * 100)
+        print(f"Summary: {long_count} LONG | {flat_count} FLAT | {len(signal_summary)} Total Assets")
+        print("=" * 100)
+        
+        return signal_summary
+    
+    def display_recent_trades(self, n=25):
+        """Display the most recent N trades"""
+        if not self.trades:
+            print("\nNo trades recorded yet.")
+            return
+        
+        print("\n" + "=" * 130)
+        print(f"LAST {min(n, len(self.trades))} INDIVIDUAL ASSET TRADES (Most Recent First)")
+        print("=" * 130)
+        print(f"{'#':<5} {'Symbol':<10} {'Entry Date':<12} {'Exit Date':<12} {'Entry Price':<15} {'Exit Price':<15} {'PnL %':<10} {'Duration':<10} {'Position Size':<15} {'Status':<10}")
+        print("-" * 130)
     
     def calculate_portfolio_performance(self):
         """Calculate equal-weighted portfolio performance"""
@@ -623,8 +744,11 @@ class CryptoTrendStrategy:
                 
                 # 3. Monthly Returns
                 if hasattr(self, 'portfolio_returns'):
-                    monthly_data = self.create_monthly_returns_heatmap(self.portfolio_returns)
-                    monthly_data.to_excel(writer, sheet_name='Monthly_Returns')
+                    try:
+                        monthly_data = self.create_monthly_returns_heatmap(self.portfolio_returns)
+                        monthly_data.to_excel(writer, sheet_name='Monthly_Returns')
+                    except Exception as e:
+                        print(f"Could not create monthly returns: {e}")
                 
                 # 4. Individual Asset Signals
                 if self.signals:
@@ -636,7 +760,35 @@ class CryptoTrendStrategy:
                     positions_df = pd.DataFrame(self.positions)
                     positions_df.to_excel(writer, sheet_name='Positions')
                 
-                # 6. Monte Carlo Results
+                # 6. All Trades
+                if self.trades:
+                    trades_df = pd.DataFrame(self.trades)
+                    trades_df.to_excel(writer, sheet_name='All_Trades', index=False)
+                
+                # 7. Current Signals
+                if hasattr(self, 'data') and self.data:
+                    current_signals_data = []
+                    for symbol in sorted(self.data.keys()):
+                        try:
+                            data = self.data[symbol]
+                            ma_col = f'MA_{self.ma_period}'
+                            if ma_col in data.columns and len(data) > 0:
+                                current_signals_data.append({
+                                    'Symbol': symbol,
+                                    'Current_Price': data['Close'].iloc[-1],
+                                    f'MA_{self.ma_period}': data[ma_col].iloc[-1],
+                                    'Signal': self.signals[symbol].iloc[-1],
+                                    'Position': self.positions[symbol].iloc[-1],
+                                    'Status': 'LONG' if self.signals[symbol].iloc[-1] > 0 else 'FLAT'
+                                })
+                        except:
+                            continue
+                    
+                    if current_signals_data:
+                        current_signals_df = pd.DataFrame(current_signals_data)
+                        current_signals_df.to_excel(writer, sheet_name='Current_Signals', index=False)
+                
+                # 8. Monte Carlo Results
                 if hasattr(self, 'monte_carlo_results') and self.monte_carlo_results:
                     mc_df = pd.DataFrame([self.monte_carlo_results]).T
                     mc_df.columns = ['Monte_Carlo']
@@ -646,12 +798,15 @@ class CryptoTrendStrategy:
             
         except Exception as e:
             print(f"Error exporting to Excel: {e}")
+            import traceback
+            traceback.print_exc()
     
     def run_backtest(self):
         """Run the complete backtest"""
         print("=" * 60)
-        print("CRYPTO TREND TRADING STRATEGY - MA CROSSOVER")
-        print(f"Moving Averages: {self.fast_ma}-{self.slow_ma} day crossover")
+        print("CRYPTO TREND TRADING STRATEGY - PRICE vs MA")
+        print(f"Moving Average: {self.ma_period}-day MA")
+        print(f"Logic: Long when Price > MA, Flat when Price < MA")
         print(f"Target Volatility: {self.target_volatility:.1%}")
         print(f"Max Leverage: {self.max_leverage:.1f}x")
         print("=" * 60)
@@ -701,10 +856,16 @@ class CryptoTrendStrategy:
             print(f"  Mean Sharpe: {mc_results['Mean Sharpe']:.3f}")
             print(f"  Probability of Loss: {mc_results['Probability of Loss']:.1%}")
         
-        # 7. Export results
+        # 7. Display current signals for all cryptos
+        current_signals = self.display_current_signals()
+        
+        # 8. Display last 25 trades
+        self.display_recent_trades(n=25)
+        
+        # 9. Export results
         self.export_to_excel()
         
-        # 8. Create plots
+        # 10. Create plots
         print("\nGenerating performance charts...")
         fig1, fig2 = self.plot_results()
         
@@ -716,6 +877,8 @@ class CryptoTrendStrategy:
             'strategy_metrics': self.performance_metrics,
             'benchmark_metrics': benchmark_metrics,
             'monte_carlo': mc_results,
+            'current_signals': current_signals,
+            'trades': self.trades,
             'plots': (fig1, fig2)
         }
 
@@ -723,12 +886,11 @@ class CryptoTrendStrategy:
 # Run the strategy
 if __name__ == "__main__":
     
-    # Initialize strategy with 50-55 day MA crossover
+    # Initialize strategy with simple price vs MA logic
     strategy = CryptoTrendStrategy(
         start_date='2014-01-01',
-        fast_ma=50,
-        slow_ma=55,
-        target_volatility=0.30,  # <-- Changed from 0.25 to 0.30
+        ma_period=50,
+        target_volatility=0.4,
         max_leverage=2.0,
         transaction_cost=0.001
     )
@@ -736,10 +898,12 @@ if __name__ == "__main__":
     # Run backtest
     results = strategy.run_backtest()
     
-    print("\nKEY NOTES:")
-    print("- Uses 50-55 day Moving Average crossover strategy")
-    print("- Long when 50-day MA > 55-day MA")
-    print("- Flat when 50-day MA < 55-day MA")
-    print("- Volatility-based position sizing with 30% target vol")
+    print("\nSTRATEGY LOGIC:")
+    print("- Long (1.0) when Price > 50-day Moving Average")
+    print("- Flat (0.0) when Price < 50-day Moving Average")
+    print("- Volatility-based position sizing with 25% target vol")
     print("- Max 2x leverage per asset")
     print("- Equal-weighted portfolio across all cryptos")
+    print("- Simple trend-following: ride trends while above MA")
+
+  

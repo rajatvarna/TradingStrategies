@@ -24,8 +24,8 @@ PAID_POLYGON_SUBSCRIPTION = False
 
 # Trading parameters (feel free to modify these)
 TICKER = "TQQQ"
-START_DATE = "2023-09-27"
-END_DATE = "2025-08-25"
+START_DATE = "2023-10-01"
+END_DATE = "2025-09-29"
 OUTPUT_FILE = f"{TICKER}_intraday_data.csv"
 
 utc_tz = pytz.timezone('UTC')
@@ -429,7 +429,7 @@ days = pd.DatetimeIndex(sorted(days))
 # ----------------------
 # Backtest & Strategy Parameters (Edit as needed)
 # ----------------------
-orb_m       = 5             # Opening Range (minutes)
+orb_m       = 15             # Opening Range (minutes)
 target_R    = float('inf')  # Profit target (use inf for no target)
 commission  = 0.0005        # Commission per share
 risk        = 0.01          # Equity risk per trade (1% of AUM)
@@ -528,8 +528,8 @@ def plot_optimization_results(opt_df):
     plt.show()
 
 # Example: Try different ORB windows and leverage levels
-orb_m_list = [5, 10, 15, 30]
-lev_list = [1, 2, 3, 4, 5]
+orb_m_list = [5, 10, 15, 30, 60]
+lev_list = [1, 1.5, 2, 3, 4, 5]
 opt_df = optimize_parameters(days, p, orb_m_list, lev_list, target_R, risk, AUM_0, commission)
 print(opt_df)
 plot_optimization_results(opt_df)

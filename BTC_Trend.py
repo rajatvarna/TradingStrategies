@@ -329,6 +329,8 @@ class BitcoinMAStrategy:
             'Prob_Positive_Return': np.sum(simulation_results > 0) / num_simulations * 100,
             'Prob_Outperform_BuyHold': 0  # Will be calculated when we have benchmark
         }
+
+        return mc_stats
         
     def calculate_buy_hold_metrics(self, data, start_date, end_date):
         """Calculate buy and hold metrics for comparison"""
@@ -571,27 +573,18 @@ def run_complete_backtest():
         # Monthly returns heatmap with yearly totals
         ax3 = axes[1, 0]
         if not monthly_pivot.empty and monthly_pivot.shape[0] > 0:
-            # Set min/max for color scale
-            vmin = -20  # or monthly_pivot.min().min()
-            vmax = 20   # or monthly_pivot.max().max()
-            im = ax3.imshow(
-                monthly_pivot.values,
-                cmap='RdYlGn',
-                aspect='auto',
-                interpolation='nearest',
-                vmin=vmin,
-                vmax=vmax
-            )
+            # Create heatmap
+            im = ax3.imshow(monthly_pivot.values, cmap='RdYlGn', aspect='auto', interpolation='nearest')
             ax3.set_xticks(range(len(monthly_pivot.columns)))
             ax3.set_xticklabels(monthly_pivot.columns)
             ax3.set_yticks(range(len(monthly_pivot.index)))
             ax3.set_yticklabels(monthly_pivot.index)
             ax3.set_title('Monthly Returns Heatmap (%) with Yearly Totals')
-
+            
             # Add colorbar
             cbar = plt.colorbar(im, ax=ax3)
             cbar.set_label('Monthly Return (%)')
-
+            
             # Add text annotations
             for i in range(len(monthly_pivot.index)):
                 for j in range(len(monthly_pivot.columns)):
@@ -825,4 +818,131 @@ def create_excel_report(results_df, metrics, trades, monthly_pivot, yearly_retur
             ['Bitcoin MA Strategy', benchmarks['BTC_Strategy']],
             ['Bitcoin Buy & Hold', benchmarks['BTC_BuyHold']],
             ['SPY Buy & Hold', benchmarks['SPY_BuyHold']],
-            ['QQQ Buy & Hold', benchmarks['QQQ_BuyHold']
+            ['QQQ Buy & Hold', benchmarks['QQQ_BuyHold']]
+        ]
+        
+        for i, (strategy, return_pct) in enumerate(benchmark_data, 1):
+            benchmark_ws.write(i, 0, strategy)
+            benchmark_ws.write(i, 1, return_pct/100, percent_format)
+        
+        benchmark_ws.set_column('A:A', 20)
+        benchmark_ws.set_column('B:B', 15)
+        
+        # 5. Daily Data Sheet
+        daily_ws = workbook.add_worksheet('Daily_Data')
+        
+        # Write headers
+        headers = ['Date'] + list(results_df.columns)
+        for col, header in enumerate(headers):
+            daily_ws.write(0, col, header, header_format)
+        
+        # Write data
+        for row, (date, data) in enumerate(results_df.iterrows(), 1):
+            daily_ws.write(row, 0, date, date_format)
+            for col, value in enumerate(data, 1):
+                if pd.isna(value):
+                    daily_ws.write(row, col, '')
+                elif isinstance(value, (int, float)):
+                    daily_ws.write(row, col, value, number_format)
+                else:
+                    daily_ws.write(row, col, value)
+        
+        daily_ws.set_column('A:A', 12)
+        daily_ws.set_column('B:Z', 12)
+        
+        # 6. Trades Sheet
+        if trades:
+            trades_ws = workbook.add_worksheet('Trades')
+            trades_df = pd.DataFrame(trades)
+            
+            # Write headers
+            for col, header in enumerate(trades_df.columns):
+                trades_ws.write(0, col, header.replace('_', ' ').title(), header_format)
+            
+            # Write data
+            for row_idx, (_, row_data) in enumerate(trades_df.iterrows(), 1):
+                for col_idx, value in enumerate(row_data):
+                    if pd.isna(value):
+                        trades_ws.write(row_idx, col_idx, '')
+                    elif col_idx in [0, 1]:  # Date columns
+                        trades_ws.write(row_idx, col_idx, value, date_format)
+                    elif 'Pct' in trades_df.columns[col_idx]:
+                        # Color code profitable vs losing trades
+                        if value > 0:
+                            cell_format = workbook.add_format({'num_format': '0.00%', 'bg_color': '#90EE90'})
+                        else:
+                            cell_format = workbook.add_format({'num_format': '0.00%', 'bg_color': '#FFB6C1'})
+                        trades_ws.write(row_idx, col_idx, value/100, cell_format)
+                    elif isinstance(value, (int, float)):
+                        trades_ws.write(row_idx, col_idx, value, number_format)
+                    else:
+                        trades_ws.write(row_idx, col_idx, value)
+            
+            trades_ws.set_column('A:B', 12)  # Date columns
+            trades_ws.set_column('C:Z', 10)
+        
+        # 7. Monthly Returns with Yearly Totals
+        if not monthly_pivot.empty:
+            monthly_ws = workbook.add_worksheet('Monthly_Returns')
+            
+            # Write year header
+            monthly_ws.write(0, 0, 'Year', header_format)
+            
+            # Write month headers
+            for col, month in enumerate(monthly_pivot.columns, 1):
+                monthly_ws.write(0, col, month, header_format)
+            
+            # Write data with conditional formatting
+            for row_idx, (year, row_data) in enumerate(monthly_pivot.iterrows(), 1):
+                monthly_ws.write(row_idx, 0, year)
+                for col_idx, value in enumerate(row_data, 1):
+                    if pd.isna(value):
+                        monthly_ws.write(row_idx, col_idx, '')
+                    else:
+                        # Color code positive/negative returns
+                        if value > 0:
+                            cell_format = workbook.add_format({'num_format': '0.00%', 'bg_color': '#90EE90'})
+                        else:
+                            cell_format = workbook.add_format({'num_format': '0.00%', 'bg_color': '#FFB6C1'})
+                        monthly_ws.write(row_idx, col_idx, value/100, cell_format)
+            
+            monthly_ws.set_column('A:A', 8)
+            monthly_ws.set_column('B:M', 8)
+            monthly_ws.set_column('N:N', 10)  # YEAR column
+        
+        # 8. Monte Carlo Sheet
+        if mc_stats:
+            mc_ws = workbook.add_worksheet('Monte_Carlo')
+            mc_ws.write('A1', 'Monte Carlo Statistics', header_format)
+            mc_ws.write('B1', 'Value', header_format)
+            
+            mc_data = [
+                ['Mean Return (%)', mc_stats['Mean_Return_Pct']],
+                ['Median Return (%)', mc_stats['Median_Return_Pct']],
+                ['Std Return (%)', mc_stats['Std_Return_Pct']],
+                ['Min Return (%)', mc_stats['Min_Return_Pct']],
+                ['Max Return (%)', mc_stats['Max_Return_Pct']],
+                ['VaR 5% (%)', mc_stats['VaR_5_Pct']],
+                ['VaR 1% (%)', mc_stats['VaR_1_Pct']],
+                ['Prob Positive Return (%)', mc_stats['Prob_Positive_Return']]
+            ]
+            
+            for i, (metric, value) in enumerate(mc_data, 1):
+                mc_ws.write(i, 0, metric)
+                if 'Prob' in metric:
+                    mc_ws.write(i, 1, value/100, percent_format)
+                else:
+                    mc_ws.write(i, 1, value, number_format)
+            
+            mc_ws.set_column('A:A', 25)
+            mc_ws.set_column('B:B', 15)
+        
+        workbook.close()
+        print("Comprehensive Excel report 'bitcoin_strategy_report.xlsx' created successfully!")
+        
+    except Exception as e:
+        print(f"Error creating Excel report: {e}")
+        raise
+
+if __name__ == "__main__":
+    run_complete_backtest()
