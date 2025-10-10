@@ -1,0 +1,87 @@
+======================================================================
+GULF STOCK MARKET DOWNLOAD SUMMARY
+======================================================================
+
+Download Date: 2025-10-07 16:22:40
+Duration: 0:04:52.593358
+Period: max (all available historical data)
+
+======================================================================
+EXCHANGE STATISTICS
+======================================================================
+
+DFM:
+  Stocks Attempted:     14
+  Successfully Downloaded: 14
+  Failed:                0
+  Success Rate:          100.0%
+
+ADX:
+  Stocks Attempted:     0
+  Successfully Downloaded: 0
+  Failed:                0
+  Success Rate:          0.0%
+
+Tadawul:
+  Stocks Attempted:     43
+  Successfully Downloaded: 43
+  Failed:                0
+  Success Rate:          100.0%
+
+======================================================================
+OVERALL STATISTICS
+======================================================================
+
+Total Stocks Attempted:     57
+Total Successfully Downloaded: 57
+Total Failed:                0
+Overall Success Rate:        100.0%
+
+======================================================================
+DIRECTORY STRUCTURE
+======================================================================
+
+gulf_stocks_data/
+├── ADX/
+│   ├── daily/           (CSV files with OHLCV data)
+│   └── metadata/        (Stock information)
+├── DFM/
+│   ├── daily/
+│   └── metadata/
+├── Tadawul/
+│   ├── daily/
+│   └── metadata/
+└── DOWNLOAD_SUMMARY.txt (This file)
+
+======================================================================
+DATA FORMAT
+======================================================================
+
+Each CSV file contains:
+  - Date (index): Trading date
+  - Open: Opening price
+  - High: Highest price
+  - Low: Lowest price
+  - Close: Closing price
+  - Adj Close: Adjusted closing price
+  - Volume: Trading volume
+
+Data is sorted from earliest to latest date.
+
+======================================================================
+USAGE NOTES
+======================================================================
+
+1. To load data in Python:
+   df = pd.read_csv('gulf_stocks_data/DFM/daily/EMAAR_AE.csv',
+                    index_col=0, parse_dates=True)
+
+2. To update data: Simply run this script again
+
+3. Data source: Yahoo Finance
+
+4. For questions or issues, check ticker symbols on exchange websites:
+   - ADX: https://www.adx.ae
+   - DFM: https://www.dfm.ae
+   - Tadawul: https://www.saudiexchange.sa
+

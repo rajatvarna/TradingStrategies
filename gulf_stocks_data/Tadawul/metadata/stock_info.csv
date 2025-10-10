@@ -1,0 +1,44 @@
+Ticker,Name,Currency,Exchange,Sector,Industry,Market_Cap,Start_Date,End_Date,Data_Points,Download_Date
+1120.SR,Al Rajhi Banking and Investment Corporation,SAR,SAU,Financial Services,Banks - Regional,426399989760,2010-03-03,2025-10-07,3864,2025-10-07 16:19:48
+1180.SR,The Saudi National Bank,SAR,SAU,Financial Services,Banks - Regional,230627196928,2014-11-12,2025-10-07,2752,2025-10-07 16:19:52
+1050.SR,Banque Saudi Fransi,SAR,SAU,Financial Services,Banks - Regional,46343729152,2010-03-03,2025-10-07,3830,2025-10-07 16:19:55
+1060.SR,Saudi Awwal Bank,SAR,SAU,Financial Services,Banks - Regional,66945208320,2010-03-04,2025-10-07,3827,2025-10-07 16:19:59
+1150.SR,Alinma Bank,SAR,SAU,Financial Services,Banks - Regional,66622959616,2010-03-03,2025-10-07,3865,2025-10-07 16:20:04
+1010.SR,Riyad Bank,SAR,SAU,Financial Services,Banks - Regional,82542952448,2012-04-01,2025-10-07,3359,2025-10-07 16:20:08
+1080.SR,Arab National Bank,SAR,SAU,Financial Services,Banks - Regional,50633101312,2010-03-03,2025-10-07,3830,2025-10-07 16:20:11
+2222.SR,Saudi Arabian Oil Company,SAR,SAU,Energy,Oil & Gas Integrated,6007670439936,2019-12-11,2025-10-07,1453,2025-10-07 16:20:15
+2010.SR,Saudi Basic Industries Corporation,SAR,SAU,Basic Materials,Chemicals,184649990144,2010-03-03,2025-10-07,3836,2025-10-07 16:20:19
+2020.SR,SABIC Agri-Nutrients Company,SAR,SAU,Basic Materials,Agricultural Inputs,57409867776,2010-03-04,2025-10-07,3827,2025-10-07 16:20:23
+2030.SR,Saudi Arabian Refineries Company,SAR,SAU,Industrials,Conglomerates,933000000,2010-03-03,2025-10-07,3828,2025-10-07 16:20:27
+2060.SR,National Industrialization Company,SAR,SAU,Basic Materials,Chemicals,7919941632,2010-03-04,2025-10-07,3827,2025-10-07 16:20:31
+2090.SR,National Gypsum Company,SAR,SAU,Basic Materials,Building Materials,647583360,2010-03-03,2025-10-07,3828,2025-10-07 16:20:35
+1211.SR,Saudi Arabian Mining Company (Ma'aden),SAR,SAU,Basic Materials,Other Industrial Metals & Mining,259243917312,2010-03-03,2025-10-07,3831,2025-10-07 16:20:39
+2001.SR,Methanol Chemicals Company,SAR,SAU,Basic Materials,Chemicals,720225024,2010-03-03,2025-10-07,3829,2025-10-07 16:20:43
+4030.SR,The National Shipping Company of Saudi Arabia,SAR,SAU,Industrials,Marine Shipping,25858301952,2010-03-04,2025-10-07,3829,2025-10-07 16:20:47
+4061.SR,Anaam International Holding Group Company,SAR,SAU,Consumer Defensive,Food Distribution,506835008,2010-03-03,2025-10-07,3830,2025-10-07 16:20:50
+4040.SR,Saudi Public Transport Company,SAR,SAU,Industrials,Railroads,1698750080,2010-03-03,2025-10-07,3829,2025-10-07 16:20:54
+4280.SR,Kingdom Holding Company,SAR,SAU,Industrials,Conglomerates,30129778688,2010-03-04,2025-10-07,3827,2025-10-07 16:20:58
+4081.SR,Nayifat Finance Company,SAR,SAU,Financial Services,Credit Services,1591531264,2021-12-08,2025-10-07,953,2025-10-07 16:21:02
+4004.SR,Dallah Healthcare Company,SAR,SAU,Healthcare,Medical Care Facilities,14877432832,2012-12-17,2025-10-07,3212,2025-10-07 16:21:06
+4003.SR,United Electronics Company,SAR,SAU,Consumer Cyclical,Specialty Retail,7006347776,2012-08-26,2025-10-07,3277,2025-10-07 16:21:10
+4006.SR,Saudi Marketing Company,SAR,SAU,Consumer Cyclical,Department Stores,786600000,2014-06-24,2025-10-07,2841,2025-10-07 16:21:14
+4005.SR,National Medical Care Company,SAR,SAU,Healthcare,Medical Care Facilities,8102297088,2013-03-13,2025-10-07,3149,2025-10-07 16:21:26
+4001.SR,Abdullah Al-Othaim Markets Company,SAR,SAU,Consumer Defensive,Grocery Stores,7029000192,2010-03-04,2025-10-07,3828,2025-10-07 16:21:30
+4008.SR,Saudi Company for Hardware SACO,SAR,SAU,Consumer Cyclical,Specialty Retail,927948864,2015-12-21,2025-10-07,2469,2025-10-07 16:21:34
+1301.SR,United Wire Factories Company,SAR,SAU,Industrials,Building Products & Equipment,713793600,2012-01-17,2025-10-07,3403,2025-10-07 16:21:38
+2280.SR,Almarai Company,SAR,SAU,Consumer Defensive,Packaged Foods,49699561472,2010-03-04,2025-10-07,3827,2025-10-07 16:21:42
+4020.SR,Saudi Real Estate Company,SAR,SAU,Real Estate,Real Estate Services,5898749952,2010-03-03,2025-10-07,3829,2025-10-07 16:21:46
+4090.SR,Taiba Investment Company,SAR,SAU,Consumer Cyclical,Lodging,10819404800,2010-03-04,2025-10-07,3862,2025-10-07 16:21:50
+4140.SR,Saudi Industrial Export Company,SAR,SAU,Industrials,Conglomerates,416016032,2010-03-04,2025-10-07,3829,2025-10-07 16:21:54
+8010.SR,The Company for Cooperative Insurance,SAR,SAU,Financial Services,Insurance - Life,20903964672,2010-03-04,2025-10-07,3863,2025-10-07 16:21:58
+8012.SR,Aljazira Takaful Taawuni Company,SAR,SAU,Financial Services,Insurance - Life,852720000,2014-06-24,2025-10-07,2842,2025-10-07 16:22:02
+8020.SR,Malath Cooperative Insurance Company,SAR,SAU,Financial Services,Insurance - Property & Casualty,667000000,2010-03-03,2025-10-07,3830,2025-10-07 16:22:06
+2110.SR,Saudi Cable Company,SAR,SAU,Industrials,Electrical Equipment & Parts,1027627520,2010-03-03,2025-10-07,3843,2025-10-07 16:22:09
+2050.SR,Savola Group Company,SAR,SAU,Consumer Defensive,Packaged Foods,7444414976,2010-03-03,2025-10-07,3830,2025-10-07 16:22:14
+3010.SR,Arabian Cement Company,SAR,SAU,Basic Materials,Building Materials,2202000128,2010-03-04,2025-10-07,3828,2025-10-07 16:22:17
+4031.SR,Saudi Ground Services Company,SAR,SAU,Industrials,Airports & Air Services,8798399488,2015-12-21,2025-10-07,2468,2025-10-07 16:22:21
+4260.SR,United International Transportation Company,SAR,SAU,Industrials,Rental & Leasing Services,5928942080,2010-03-04,2025-10-07,3827,2025-10-07 16:22:25
+6001.SR,Halwani Bros. Co. Ltd.,SAR,SAU,Consumer Defensive,Packaged Foods,1464492800,2010-03-04,2025-10-07,3828,2025-10-07 16:22:29
+6010.SR,The National Agricultural Development Company,SAR,SAU,Consumer Defensive,Packaged Foods,6732604928,2010-03-04,2025-10-07,3828,2025-10-07 16:22:33
+4170.SR,Tourism Enterprise Company (Shams),SAR,SAU,Consumer Cyclical,Resorts & Casinos,54354208,2010-03-03,2025-10-07,3830,2025-10-07 16:22:36
+4320.SR,Alandalus Property Company,SAR,SAU,Real Estate,Real Estate Services,1867600128,2016-01-12,2025-10-07,2463,2025-10-07 16:22:40
