@@ -1,0 +1,36 @@
+
+================================================================================
+STOCK DATA ANALYSIS - SUMMARY REPORT
+================================================================================
+
+Date: 2025-10-22 17:47:46
+
+Total Tickers Requested: 110
+Successfully Processed: 107
+Failed: 3
+Success Rate: 97.3%
+
+================================================================================
+OUTPUT STRUCTURE
+================================================================================
+
+Data Directory: top_100_stocks_analysis\data
+  - Daily CSV files: 107 files
+  - Weekly CSV files: 107 files
+  - Monthly CSV files: 107 files
+
+Charts Directory: top_100_stocks_analysis\charts
+  - Daily charts: top_100_stocks_analysis\charts\daily
+  - Weekly charts: top_100_stocks_analysis\charts\weekly
+  - Monthly charts: top_100_stocks_analysis\charts\monthly
+
+================================================================================
+FAILED TICKERS
+================================================================================
+  - BRK.B
+  - HES
+  - HON
+
+================================================================================
+ANALYSIS COMPLETE
+================================================================================
